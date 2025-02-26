@@ -1,0 +1,54 @@
+{
+  "compilerOptions": {
+    "module": "nodenext",
+    "target": "ESNext",
+    "declaration": true,
+    "noImplicitAny": true,
+    "removeComments": false,
+    "suppressImplicitAnyIndexErrors": false,
+    "preserveConstEnums": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "sourceMap": false,
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": false,
+    "experimentalDecorators": true,
+    "lib": [
+      "es6"
+    ],
+    "baseUrl": ".",
+    "strict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "alwaysStrict": true,
+    "moduleResolution": "nodenext",
+    "allowJs": true,
+    "incremental": true,
+    "allowSyntheticDefaultImports": true,
+    "outDir": "build",
+    "typeRoots": [
+      "node_modules/@types",
+      "assemblyscript/transform",
+      "./node_modules/assemblyscript/std/assembly.json",
+      "./std/assembly",
+      "types"
+    ],
+    "paths": {
+      "*": [
+        "./assembly/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "src/*",
+    "src/**/*.js",
+    "src/*.ts",
+    "src/*.js",
+    "src/*.cjs",
+    "transformer/*.ts",
+    "transformer/**/*.ts"
+  ]
+}

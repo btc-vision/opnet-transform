@@ -1,0 +1,51 @@
+{
+  "name": "@btc-vision/opnet-transformer",
+  "version": "0.0.1",
+  "description": "OP_NET AssemblyScript transformer",
+  "main": "build/OPNetTransformer.js",
+  "types": "std/assembly/index.d.ts",
+  "typings": "std/assembly/index.d.ts",
+  "scripts": {
+    "build": "asc src/index.ts --target release --measure --uncheckedBehavior never",
+    "test": "asp --config as-pect.config.js --verbose --no-logo",
+    "test:ci": "asp --config as-pect.config.js --summary --no-logo"
+  },
+  "author": "OPNet Labs",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "assemblyscript": "^0.27.34",
+    "prettier": "^3.4.2"
+  },
+  "keywords": [
+    "bitcoin",
+    "smart",
+    "contract",
+    "runtime",
+    "opnet",
+    "OP_NET",
+    "wrapped bitcoin",
+    "wbtc"
+  ],
+  "homepage": "https://opnet.org",
+  "type": "module",
+  "dependencies": {
+    "@assemblyscript/loader": "^0.27.31",
+    "@btc-vision/btc-runtime": "file:../btc-runtime",
+    "@btc-vision/logger": "^1.0.6",
+    "@btc-vision/transaction": "^1.2.14",
+    "@btc-vision/visitor-as": "^0.11.5",
+    "@eslint/js": "^9.17.0",
+    "gulp": "^5.0.0",
+    "gulp-cached": "^1.1.1",
+    "gulp-clean": "^0.4.0",
+    "gulp-eslint-new": "^2.4.0",
+    "gulp-logger-new": "^1.0.1",
+    "gulp-typescript": "^6.0.0-alpha.1",
+    "jsonrepair": "^3.12.0",
+    "opnet": "^1.2.26",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.2"
+  }
+}

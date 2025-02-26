@@ -1,0 +1,10 @@
+{
+  "entries": [
+    "./assembly/index.ts"
+  ],
+  "options": {
+    "transform": [
+      "./transformer/OPNetTransformer.ts"
+    ]
+  }
+}
