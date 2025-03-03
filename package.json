@@ -1,5 +1,5 @@
 {
-  "name": "@btc-vision/opnet-transformer",
+  "name": "@btc-vision/opnet-transform",
   "version": "0.0.1",
   "description": "OP_NET AssemblyScript transformer",
   "main": "build/OPNetTransformer.js",
