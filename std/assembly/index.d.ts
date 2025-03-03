@@ -44,12 +44,12 @@ declare global {
     }
 
     /**
-     * Decorator that marks a method as externally callable.
+     * Mark a class method as being callable.
      *
-     * If the *first* argument is NOT recognized as a parameter (string/object),
-     * we treat it as the method name; subsequent arguments are parameter definitions (strings or objects).
+     * This decorator allow you to set the method ABI.
+     * We treat it as the method name; subsequent arguments are parameter definitions (strings or objects).
      *
-     * **Examples:**
+     * Examples:
      * ```
      *   @method()
      *   @method("myMethodName")
