@@ -15,7 +15,7 @@ import { IdentifierExpression } from 'types:assemblyscript/src/ast';
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
 import { ABIDataTypes } from 'opnet';
-import { StrToAbiType } from './StrToAbiType.js';
+import { AbiTypeToStr, StrToAbiType } from './StrToAbiType.js';
 import { Logger } from '@btc-vision/logger';
 import { EventAbi } from './interfaces/Abi.js';
 import { unquote } from './utils/index.js';
@@ -99,6 +99,7 @@ export default class MyTransform extends Transform {
                     (member as MethodDeclaration).name.text === 'execute'
                 );
             });
+
             if (existingIndex !== -1) {
                 logger.info(`Overwriting existing 'execute' in class ${className}`);
                 classDecl.members[existingIndex] = newMember;
@@ -134,15 +135,39 @@ export default class MyTransform extends Transform {
 
         for (const m of methods) {
             // Build the signature from paramDefs
-            const paramTypeNames = m.paramDefs.map((param) =>
-                typeof param === 'string' ? param : param.type,
-            );
-            const sig = `${m.methodName}(${paramTypeNames.join(',')})`;
+            const realNames = m.paramDefs.map((param) => {
+                if (typeof param === 'string') {
+                    return param;
+                }
+
+                const type = param.type;
+                if (type.startsWith('ABIDataTypes.')) {
+                    const enumType = type.replace('ABIDataTypes.', '');
+                    const enumValue = ABIDataTypes[enumType as keyof typeof ABIDataTypes];
+
+                    if (!enumValue) {
+                        throw new Error(`Invalid abi type (from string): ${enumType}`);
+                    }
+
+                    const selectorValue = AbiTypeToStr[enumValue];
+                    if (!selectorValue) {
+                        throw new Error(`Invalid abi type (to string): ${enumValue}`);
+                    }
+
+                    return selectorValue;
+                }
+
+                return param.type;
+            });
+
+            const sig = `${m.methodName}(${realNames.join(',')})`;
             m.signature = sig;
 
             // 4-byte selector
             const selectorHex = abiCoder.encodeSelector(sig);
             const selectorNum = `0x${selectorHex}`;
+
+            logger.info(`Encoding func ${sig} -> ${selectorNum}`);
 
             bodyLines.push(
                 `if (selector == ${selectorNum}) return this.${m.methodName}(calldata);`,
