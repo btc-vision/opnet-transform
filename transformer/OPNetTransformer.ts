@@ -55,8 +55,10 @@ const abiCoder = new ABICoder();
 export default class MyTransform extends Transform {
     private methodsByClass: Map<string, MethodCollection[]> = new Map();
     private classDeclarations: Map<string, ClassDeclaration> = new Map();
+
     private events: EventAbi[] = [];
     private program: Program | undefined;
+
     private currentClassName: string | null = null;
     private collectingEvent: boolean = false;
     private currentEventName: string | null = null;
@@ -167,7 +169,7 @@ export default class MyTransform extends Transform {
             const selectorHex = abiCoder.encodeSelector(sig);
             const selectorNum = `0x${selectorHex}`;
 
-            logger.info(`Encoding func ${sig} -> ${selectorNum}`);
+            logger.debugBright(`Found function ${sig} -> ${selectorNum}`);
 
             bodyLines.push(
                 `if (selector == ${selectorNum}) return this.${m.methodName}(calldata);`,
