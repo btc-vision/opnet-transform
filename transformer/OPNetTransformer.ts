@@ -37,7 +37,6 @@ interface NamedParameter {
     type: string;
 }
 
-/** Minimal helper to track class => methods => [signature, ...] */
 interface MethodCollection {
     methodName: string;
     paramDefs: ParamDefinition[];
@@ -73,8 +72,9 @@ export default class MyTransform extends Transform {
         }
 
         // Build ABI JSON
-        const abiJson = JSON.stringify(this.buildAbi(), null, 2);
+        const abiJson = JSON.stringify(this.buildAbi(), null, 4);
         fs.writeFileSync('abi.json', abiJson);
+
         logger.success('ABI generated to abi.json!');
 
         // Inject or overwrite `execute` where needed
@@ -117,6 +117,7 @@ export default class MyTransform extends Transform {
                 const resolvedName = this.getInternalNameForMethodDeclaration(
                     methodInfo.declaration,
                 );
+
                 if (resolvedName) {
                     methodInfo.internalName = resolvedName;
                 } else {
@@ -208,6 +209,10 @@ export default class MyTransform extends Transform {
     }
 
     private mapToAbiDataType(str: string): ABIDataTypes {
+        if (str.startsWith('ABIDataTypes')) {
+            return str.replace('ABIDataTypes.', '') as ABIDataTypes;
+        }
+
         return StrToAbiType[str];
     }
 
@@ -313,6 +318,7 @@ export default class MyTransform extends Transform {
     private visitFieldDeclaration(node: FieldDeclaration): void {
         if (!this.collectingEvent || !this.currentEventName) return;
         const fieldName = node.name.text;
+
         if (!node.type) return;
         const typeStr = node.type.range.toString();
         this.events.push({
@@ -370,6 +376,7 @@ export default class MyTransform extends Transform {
         if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
             try {
                 const parsed = JSON.parse(jsonrepair(trimmed));
+
                 if (typeof parsed.name === 'string' && typeof parsed.type === 'string') {
                     return {
                         name: parsed.name,
@@ -392,6 +399,10 @@ export default class MyTransform extends Transform {
         if (typeof param === 'string') {
             return param in StrToAbiType;
         } else {
+            if (param.type.startsWith('ABIDataTypes')) {
+                return true;
+            }
+
             // named param => check if param.type is recognized
             return param.type in StrToAbiType;
         }

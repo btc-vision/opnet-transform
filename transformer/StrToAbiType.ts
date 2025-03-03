@@ -23,5 +23,4 @@ export const StrToAbiType: { [key: string]: ABIDataTypes } = {
     'uint8[]': ABIDataTypes.ARRAY_OF_UINT8,
     'bytes[]': ABIDataTypes.ARRAY_OF_BYTES,
     'string[]': ABIDataTypes.ARRAY_OF_STRING,
-    tuple256: ABIDataTypes.TUPLE,
 };

@@ -10,12 +10,37 @@
 import { AllowedAbiTypes, MethodDecorator } from '../types/assembly/AbiTypeStr';
 
 declare global {
+    export enum ABIDataTypes {
+        UINT8 = 'UINT8',
+        UINT16 = 'UINT16',
+        UINT32 = 'UINT32',
+        UINT64 = 'UINT64',
+        UINT128 = 'UINT128',
+        UINT256 = 'UINT256',
+        INT128 = 'INT128',
+        BOOL = 'BOOL',
+        ADDRESS = 'ADDRESS',
+        STRING = 'STRING',
+        BYTES32 = 'BYTES32',
+        BYTES = 'BYTES',
+        ADDRESS_UINT256_TUPLE = 'ADDRESS_UINT256_TUPLE',
+        ARRAY_OF_ADDRESSES = 'ARRAY_OF_ADDRESSES',
+        ARRAY_OF_UINT256 = 'ARRAY_OF_UINT256',
+        ARRAY_OF_UINT128 = 'ARRAY_OF_UINT128',
+        ARRAY_OF_UINT64 = 'ARRAY_OF_UINT64',
+        ARRAY_OF_UINT32 = 'ARRAY_OF_UINT32',
+        ARRAY_OF_UINT16 = 'ARRAY_OF_UINT16',
+        ARRAY_OF_UINT8 = 'ARRAY_OF_UINT8',
+        ARRAY_OF_STRING = 'ARRAY_OF_STRING',
+        ARRAY_OF_BYTES = 'ARRAY_OF_BYTES',
+    }
+
     /**
      * Describes a named parameter: `{ name: "paramName", type: "address" }`
      */
     interface NamedParameter {
         name: string;
-        type: AllowedAbiTypes;
+        type: AllowedAbiTypes | ABIDataTypes;
     }
 
     /**

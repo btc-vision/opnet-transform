@@ -1,4 +1,4 @@
-export type AllowedAbiTypes =
+export declare type AllowedAbiTypes =
     | 'address'
     | 'bool'
     | 'bytes'
@@ -20,8 +20,7 @@ export type AllowedAbiTypes =
     | 'uint16[]'
     | 'uint8[]'
     | 'bytes[]'
-    | 'string[]'
-    | 'tuple256';
+    | 'string[]';
 
 export type MethodDecorator = <T>(
     target: Object,
