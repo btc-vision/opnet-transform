@@ -76,8 +76,18 @@ declare global {
      *   @returns("uint256")
      *   @returns("address[]")
      * ```
+     * @todo PARTIAL IMPLEMENTATION ONLY.
      */
     function returns(returnType: AllowedAbiTypes): MethodDecorator;
+
+    /**
+     * Mark a class definition as an Event.
+     *
+     * Events are emitted to allow off-chain computations.
+     *
+     * @todo NOT IMPLEMENTED
+     */
+    function event(...paramDefs: (AllowedAbiTypes | NamedParameter)[]): MethodDecorator;
 }
 
 export {};
