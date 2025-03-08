@@ -6,9 +6,7 @@
   "types": "std/assembly/index.d.ts",
   "typings": "std/assembly/index.d.ts",
   "scripts": {
-    "build": "asc src/index.ts --target release --measure --uncheckedBehavior never",
-    "test": "asp --config as-pect.config.js --verbose --no-logo",
-    "test:ci": "asp --config as-pect.config.js --summary --no-logo"
+    "build": "gulp"
   },
   "author": "OPNet Labs",
   "license": "MIT",
