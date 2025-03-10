@@ -25,11 +25,14 @@
     "wrapped bitcoin",
     "wbtc"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/btc-vision/opnet-transform"
+  },
   "homepage": "https://opnet.org",
   "type": "module",
   "dependencies": {
     "@assemblyscript/loader": "^0.27.34",
-    "@btc-vision/btc-runtime": "file:../btc-runtime",
     "@btc-vision/logger": "^1.0.6",
     "@btc-vision/transaction": "file:../transaction",
     "@btc-vision/visitor-as": "^0.11.5",
