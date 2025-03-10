@@ -22,6 +22,10 @@ import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
 
+// ------------------------------------------------------------------
+// Types
+// ------------------------------------------------------------------
+
 /**
  * A single parameter definition. It can be a bare string (e.g. "uint256")
  * or an object-literal (named parameter).
@@ -37,15 +41,25 @@ interface NamedParameter {
     type: string;
 }
 
+/**
+ * Tracks each method's metadata so we can build the ABI.
+ */
 interface MethodCollection {
     methodName: string;
     paramDefs: ParamDefinition[];
+    /**
+     * The newly added set of return definitions from @returns(...)
+     */
+    returnDefs: ParamDefinition[];
     signature?: string;
     declaration: MethodDeclaration;
     selector?: number;
     internalName?: string;
 }
 
+// ------------------------------------------------------------------
+// Transformer
+// ------------------------------------------------------------------
 const logger = new Logger();
 logger.setLogPrefix('OPNetTransformer');
 logger.info('Compiling smart contract...');
@@ -63,7 +77,11 @@ export default class MyTransform extends Transform {
     private collectingEvent: boolean = false;
     private currentEventName: string | null = null;
 
+    // ------------------------------------------------------------
+    // Lifecycle Hooks
+    // ------------------------------------------------------------
     afterParse(parser: Parser): void {
+        // Walk each source
         for (const source of parser.sources) {
             if (source.isLibrary || source.internalPath.startsWith('~lib/')) {
                 continue;
@@ -76,7 +94,6 @@ export default class MyTransform extends Transform {
         // Build ABI JSON
         const abiJson = JSON.stringify(this.buildAbi(), null, 4);
         fs.writeFileSync('abi.json', abiJson);
-
         logger.success('ABI generated to abi.json!');
 
         // Inject or overwrite `execute` where needed
@@ -115,6 +132,7 @@ export default class MyTransform extends Transform {
         super.afterInitialize?.(program);
         this.program = program;
 
+        // Resolve internalName for each method
         for (const [className, methods] of this.methodsByClass.entries()) {
             for (const methodInfo of methods) {
                 const resolvedName = this.getInternalNameForMethodDeclaration(
@@ -132,6 +150,9 @@ export default class MyTransform extends Transform {
         }
     }
 
+    // ------------------------------------------------------------
+    // Build the `execute` method stubs
+    // ------------------------------------------------------------
     private buildExecuteMethod(_className: string, methods: MethodCollection[]): string {
         let bodyLines: string[] = [];
 
@@ -142,6 +163,7 @@ export default class MyTransform extends Transform {
                     return param;
                 }
 
+                // If it's NamedParameter, param.type might be "ABIDataTypes.XYZ" or a simple string
                 const type = param.type;
                 if (type.startsWith('ABIDataTypes.')) {
                     const enumType = type.replace('ABIDataTypes.', '');
@@ -150,16 +172,13 @@ export default class MyTransform extends Transform {
                     if (!enumValue) {
                         throw new Error(`Invalid abi type (from string): ${enumType}`);
                     }
-
                     const selectorValue = AbiTypeToStr[enumValue];
                     if (!selectorValue) {
                         throw new Error(`Invalid abi type (to string): ${enumValue}`);
                     }
-
                     return selectorValue;
                 }
-
-                return param.type;
+                return type;
             });
 
             const sig = `${m.methodName}(${realNames.join(',')})`;
@@ -176,6 +195,7 @@ export default class MyTransform extends Transform {
             );
         }
 
+        // Fallback
         bodyLines.push('return super.execute(selector, calldata);');
 
         return `
@@ -198,10 +218,16 @@ export default class MyTransform extends Transform {
         return null;
     }
 
+    // ------------------------------------------------------------
+    // Build final ABI
+    // ------------------------------------------------------------
     private buildAbi(): unknown {
         const functions: unknown[] = [];
+
+        // Build function ABI from method definitions
         for (const [_, methods] of this.methodsByClass) {
             for (const m of methods) {
+                // inputs
                 const inputs = m.paramDefs.map((p, idx) => {
                     if (typeof p === 'string') {
                         return {
@@ -215,7 +241,27 @@ export default class MyTransform extends Transform {
                         };
                     }
                 });
-                const outputs = [{ name: 'success', type: ABIDataTypes.BOOL }];
+
+                // outputs (use returnDefs if provided, else fallback)
+                let outputs: { name: string; type: ABIDataTypes }[];
+                if (m.returnDefs.length > 0) {
+                    outputs = m.returnDefs.map((p, idx) => {
+                        if (typeof p === 'string') {
+                            return {
+                                name: `returnVal${idx + 1}`,
+                                type: this.mapToAbiDataType(p),
+                            };
+                        } else {
+                            return {
+                                name: p.name,
+                                type: this.mapToAbiDataType(p.type),
+                            };
+                        }
+                    });
+                } else {
+                    outputs = [];
+                }
+
                 functions.push({
                     name: m.methodName,
                     type: 'Function',
@@ -224,6 +270,8 @@ export default class MyTransform extends Transform {
                 });
             }
         }
+
+        // Build event ABI
         const events = this.events.map((e) => ({
             name: e.eventName,
             values: e.params.map((p) => ({
@@ -232,17 +280,13 @@ export default class MyTransform extends Transform {
             })),
             type: 'Event',
         }));
+
         return { functions, events };
     }
 
-    private mapToAbiDataType(str: string): ABIDataTypes {
-        if (str.startsWith('ABIDataTypes')) {
-            return str.replace('ABIDataTypes.', '') as ABIDataTypes;
-        }
-
-        return StrToAbiType[str];
-    }
-
+    // ------------------------------------------------------------
+    // AST Traversal
+    // ------------------------------------------------------------
     private visitStatement(stmt: Statement): void {
         switch (stmt.kind) {
             case NodeKind.ClassDeclaration:
@@ -291,6 +335,7 @@ export default class MyTransform extends Transform {
             this.visitStatement(member);
         }
 
+        // reset event-collecting state
         if (isEventClass) {
             this.collectingEvent = false;
             this.currentEventName = null;
@@ -298,74 +343,122 @@ export default class MyTransform extends Transform {
         this.currentClassName = null;
     }
 
-    /**
-     * Parse @method(...) arguments, which can be:
-     *  - methodName, param, param, ...
-     *  - param, param, param...
-     * where each param can be a bare type string ("uint256", "address[]")
-     * or an object-literal string: "{ name: 'xyz', type: 'address[]' }"
-     */
     private visitMethodDeclaration(node: MethodDeclaration): void {
         if (!this.currentClassName) return;
-        if (node.decorators) {
-            for (const dec of node.decorators) {
-                if (dec.name.kind === NodeKind.Identifier) {
-                    const decName = (dec.name as IdentifierExpression).text;
-                    if (decName === 'method') {
-                        // Gather raw strings from the decorator arguments
-                        const rawArgs: string[] = [];
-                        if (dec.args && dec.args.length > 0) {
-                            for (const arg of dec.args) {
-                                rawArgs.push(unquote(arg.range.toString()));
-                            }
-                        }
+        if (!node.decorators) return;
 
-                        // Parse them
-                        const { methodName, paramDefs } = this.parseDecoratorArgs(
-                            rawArgs,
-                            node.name.text,
-                        );
+        // We will combine info from @method(...) and @returns(...)
+        let methodInfo: MethodCollection | null = null;
 
-                        let arr = this.methodsByClass.get(this.currentClassName);
-                        if (!arr) {
-                            arr = [];
-                            this.methodsByClass.set(this.currentClassName, arr);
-                        }
-                        arr.push({
-                            methodName,
-                            paramDefs,
-                            declaration: node,
-                        });
+        for (const dec of node.decorators) {
+            if (dec.name.kind !== NodeKind.Identifier) continue;
+            const decName = (dec.name as IdentifierExpression).text;
+
+            if (decName === 'method') {
+                // Gather raw strings from the decorator arguments
+                const rawArgs: string[] = [];
+                if (dec.args && dec.args.length > 0) {
+                    for (const arg of dec.args) {
+                        rawArgs.push(unquote(arg.range.toString()));
                     }
                 }
+
+                const { methodName, paramDefs } = this.parseDecoratorArgs(rawArgs, node.name.text);
+
+                // Create the methodInfo if not existing
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName,
+                        paramDefs,
+                        returnDefs: [],
+                        declaration: node,
+                    };
+                } else {
+                    // If methodInfo was already created by a @returns decorator,
+                    // just update the methodName & paramDefs
+                    methodInfo.methodName = methodName;
+                    methodInfo.paramDefs = paramDefs;
+                }
+            } else if (decName === 'returns') {
+                // Parse return definitions
+                const rawArgs: string[] = [];
+                if (dec.args && dec.args.length > 0) {
+                    for (const arg of dec.args) {
+                        rawArgs.push(unquote(arg.range.toString()));
+                    }
+                }
+                const returnDefs = this.parseParamDefs(rawArgs);
+
+                if (!methodInfo) {
+                    // Possibly a method has only @returns, no @method
+                    // We'll use the method's actual name as fallback
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs,
+                        declaration: node,
+                    };
+                } else {
+                    methodInfo.returnDefs = returnDefs;
+                }
+            }
+        }
+
+        // If we got either @method or @returns, store the method info
+        if (methodInfo) {
+            let arr = this.methodsByClass.get(this.currentClassName);
+            if (!arr) {
+                arr = [];
+                this.methodsByClass.set(this.currentClassName, arr);
+            }
+            // If this method is encountered again with a second decorator,
+            // we want to merge rather than push a second entry.
+            // The simplest approach: check if the same declaration is already in the array.
+            const existing = arr.find((m) => m.declaration === node);
+            if (existing) {
+                // Overwrite existing one with updated info (methodName, paramDefs, returnDefs).
+                existing.methodName = methodInfo.methodName;
+                existing.paramDefs = methodInfo.paramDefs;
+                existing.returnDefs = methodInfo.returnDefs;
+            } else {
+                arr.push(methodInfo);
             }
         }
     }
 
     private visitFieldDeclaration(node: FieldDeclaration): void {
+        // For an @event class, every field is part of the event ABI
         if (!this.collectingEvent || !this.currentEventName) return;
         const fieldName = node.name.text;
 
+        // We do not proceed if the field has no type:
         if (!node.type) return;
         const typeStr = node.type.range.toString();
+
         this.events.push({
             eventName: this.currentEventName,
-            params: [{ name: fieldName, type: this.mapToAbiDataType(typeStr) }],
+            params: [
+                {
+                    name: fieldName,
+                    type: this.mapToAbiDataType(typeStr),
+                },
+            ],
         });
     }
 
+    // ------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------
+    /**
+     * Takes raw arguments from a @method(...) decorator and differentiates
+     * between [methodName, ...params] vs. [param1, param2, ...].
+     */
     private parseDecoratorArgs(
         rawArgs: string[],
         defaultMethodName: string,
-    ): {
-        methodName: string;
-        paramDefs: ParamDefinition[];
-    } {
-        // 1) parse each item into either NamedParameter or string
+    ): { methodName: string; paramDefs: ParamDefinition[] } {
         const parsedItems = rawArgs.map((arg) => this.parseParamDefinition(arg));
 
-        // 2) If the first item is recognized as a "parameter" (like "uint256" or { name: "xyz", type: "address" }), use the defaultMethodName.
-        // Otherwise, treat the first item as the methodName.
         if (parsedItems.length === 0) {
             // no arguments => no override name, no parameters
             return {
@@ -376,8 +469,8 @@ export default class MyTransform extends Transform {
 
         const firstItem = parsedItems[0];
 
-        // If recognized as param => methodName is the default,
-        // else methodName is the first item
+        // If recognized as a param => methodName is the default,
+        // else the first item is actually the methodName
         if (this.isParamDefinition(firstItem)) {
             return {
                 methodName: defaultMethodName,
@@ -393,45 +486,59 @@ export default class MyTransform extends Transform {
     }
 
     /**
-     * Parse a single raw argument string into either a NamedParameter or a string param.
+     * For @returns(...), we do not treat the first item as a method name
+     * so we parse everything as param definitions.
+     */
+    private parseParamDefs(rawArgs: string[]): ParamDefinition[] {
+        return rawArgs.map((arg) => this.parseParamDefinition(arg));
+    }
+
+    /**
+     * Attempt to parse a single string argument into a named param, or fallback to raw string.
      *
-     *  - If it looks like JSON and has { "name": x, "type": y }, we interpret it as NamedParameter
-     *  - else it's a bare string
+     *  - If it looks like an object-literal (JSON) with { name, type }, parse as NamedParameter
+     *  - Otherwise treat as a simple type string (e.g. "uint256")
      */
     private parseParamDefinition(raw: string): ParamDefinition {
         const trimmed = raw.trim();
         if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
             try {
                 const parsed = JSON.parse(jsonrepair(trimmed));
-
                 if (typeof parsed.name === 'string' && typeof parsed.type === 'string') {
-                    return {
-                        name: parsed.name,
-                        type: parsed.type,
-                    };
+                    return { name: parsed.name, type: parsed.type };
                 }
             } catch (e) {
-                // fallback below
+                // ignore parse errors and fallback
             }
         }
         return trimmed;
     }
 
     /**
-     * Checks if a param is recognized as an ABI param definition.
-     * - If it's a string, it must exist in StrToAbiType. e.g. "uint256", "address"
-     * - If it's a named param, its .type must be in StrToAbiType
+     * Checks if we recognize a piece of data as a valid param type.
      */
     private isParamDefinition(param: ParamDefinition): boolean {
         if (typeof param === 'string') {
-            return param in StrToAbiType;
+            return param in StrToAbiType || param.startsWith('ABIDataTypes.');
         } else {
-            if (param.type.startsWith('ABIDataTypes')) {
+            if (param.type.startsWith('ABIDataTypes.')) {
                 return true;
             }
-
-            // named param => check if param.type is recognized
             return param.type in StrToAbiType;
         }
+    }
+
+    /**
+     * Convert a user-supplied type string into our internal ABIDataTypes enum.
+     */
+    private mapToAbiDataType(str: string): ABIDataTypes {
+        if (str.startsWith('ABIDataTypes.')) {
+            // "ABIDataTypes.UINT256" => "UINT256"
+            const enumName = str.replace('ABIDataTypes.', '');
+            return enumName as ABIDataTypes;
+        }
+
+        // else check our known mapping
+        return StrToAbiType[str];
     }
 }

@@ -68,17 +68,16 @@ declare global {
     function method(...paramDefs: (AllowedAbiTypes | NamedParameter)[]): MethodDecorator;
 
     /**
-     * Decorator that specifies the return type of a method for ABI generation.
+     * Decorator that specifies the return type of method for ABI generation.
      *
      * Examples:
      * ```
-     *   @returns("bool")
-     *   @returns("uint256")
-     *   @returns("address[]")
+     *   @returns()
+     *   @returns("address", "uint256")
+     *   @returns({ name: "to", type: "address" }, { name: "amount", type: "uint256" })
      * ```
-     * @todo PARTIAL IMPLEMENTATION ONLY.
      */
-    function returns(returnType: AllowedAbiTypes): MethodDecorator;
+    function returns(...returnParams: (AllowedAbiTypes | NamedParameter)[]): MethodDecorator;
 
     /**
      * Mark a class definition as an Event.
