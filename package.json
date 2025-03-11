@@ -1,6 +1,7 @@
 {
   "name": "@btc-vision/opnet-transform",
-  "version": "0.0.2",
+  "version": "0.0.1",
+  "private": false,
   "description": "OP_NET AssemblyScript transformer",
   "main": "build/OPNetTransformer.js",
   "types": "std/assembly/index.d.ts",
