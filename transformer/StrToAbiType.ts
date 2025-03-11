@@ -23,6 +23,26 @@ export const StrToAbiType: { [key: string]: ABIDataTypes } = {
     'uint8[]': ABIDataTypes.ARRAY_OF_UINT8,
     'bytes[]': ABIDataTypes.ARRAY_OF_BYTES,
     'string[]': ABIDataTypes.ARRAY_OF_STRING,
+
+    u256: ABIDataTypes.UINT256,
+    u128: ABIDataTypes.UINT128,
+    u64: ABIDataTypes.UINT64,
+    i128: ABIDataTypes.INT128,
+    u32: ABIDataTypes.UINT32,
+    u16: ABIDataTypes.UINT16,
+    u8: ABIDataTypes.UINT8,
+
+    'AddressMap<u256>': ABIDataTypes.ADDRESS_UINT256_TUPLE,
+    Address: ABIDataTypes.ADDRESS,
+    'u256[]': ABIDataTypes.ARRAY_OF_UINT256,
+    'u128[]': ABIDataTypes.ARRAY_OF_UINT128,
+    'u64[]': ABIDataTypes.ARRAY_OF_UINT64,
+    'u32[]': ABIDataTypes.ARRAY_OF_UINT32,
+    'u16[]': ABIDataTypes.ARRAY_OF_UINT16,
+    'u8[]': ABIDataTypes.ARRAY_OF_UINT8,
+    'Address[]': ABIDataTypes.ARRAY_OF_ADDRESSES,
+    'Uint8Array[]': ABIDataTypes.ARRAY_OF_BYTES,
+    Uint8Array: ABIDataTypes.BYTES,
 };
 
 // reverse key -> value

@@ -49,7 +49,7 @@ declare global {
      * This decorator allow you to set the method ABI.
      * We treat it as the method name; subsequent arguments are parameter definitions (strings or objects).
      *
-     * Examples:
+     * @example Examples:
      * ```
      *   @method()
      *   @method("myMethodName")
@@ -70,7 +70,7 @@ declare global {
     /**
      * Decorator that specifies the return type of method for ABI generation.
      *
-     * Examples:
+     * @example Examples:
      * ```
      *   @returns()
      *   @returns("address", "uint256")
@@ -84,9 +84,27 @@ declare global {
      *
      * Events are emitted to allow off-chain computations.
      *
-     * @todo NOT IMPLEMENTED
+     * @example
+     * ```
+     * @event()
+     * @event("Transfer")
+     * @event({ name: "Transfer", type: "address" }, { name: "Approval", type: "address" })
+     * @event("Transfer", { name: "Transfer", type: "address" }, { name: "Approval", type: "address" })
+     * ```
      */
     function event(...paramDefs: (AllowedAbiTypes | NamedParameter)[]): MethodDecorator;
+
+    /**
+     * Mark a method as emitting events. You must pass the event names.
+     * @param {string[]} events - The event names to emit.
+     *
+     * @example Examples:
+     * ```
+     *  @emit("Transfer", "Deposit")
+     *  @emit("Transfer")
+     * ```
+     */
+    function emit(...events: string[]): MethodDecorator;
 }
 
 export {};

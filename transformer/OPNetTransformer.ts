@@ -11,13 +11,18 @@ import {
 import { fs } from 'assemblyscript/util/node.js';
 // @ts-ignore
 import { SimpleParser } from '@btc-vision/visitor-as';
-import { IdentifierExpression } from 'types:assemblyscript/src/ast';
+import {
+    BlockStatement,
+    CallExpression,
+    ExpressionStatement,
+    IdentifierExpression,
+} from 'types:assemblyscript/src/ast';
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
+import * as prettier from 'prettier';
 import { ABIDataTypes } from 'opnet';
-import { AbiTypeToStr, StrToAbiType } from './StrToAbiType.js';
+import { StrToAbiType } from './StrToAbiType.js';
 import { Logger } from '@btc-vision/logger';
-import { EventAbi } from './interfaces/Abi.js';
 import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
@@ -47,14 +52,12 @@ interface NamedParameter {
 interface MethodCollection {
     methodName: string;
     paramDefs: ParamDefinition[];
-    /**
-     * The newly added set of return definitions from @returns(...)
-     */
     returnDefs: ParamDefinition[];
     signature?: string;
     declaration: MethodDeclaration;
     selector?: number;
     internalName?: string;
+    emittedEvents: string[];
 }
 
 interface ClassABI {
@@ -71,6 +74,20 @@ interface ClassABI {
     }[];
 }
 
+interface EventField {
+    name: string;
+    type: ABIDataTypes;
+}
+
+/**
+ * For events that are declared.  e.g.:
+ *   allEvents['Deposit'] = { eventName: 'Deposit', params: [ { name: 'user', type: ABIDataTypes.ADDRESS }, ... ] }
+ */
+interface DeclaredEvent {
+    eventName: string;
+    params: EventField[];
+}
+
 // ------------------------------------------------------------------
 // Transformer
 // ------------------------------------------------------------------
@@ -81,25 +98,35 @@ logger.info('Compiling smart contract...');
 const abiCoder = new ABICoder();
 
 export default class MyTransform extends Transform {
+    // --------------------------------------------------
+    // Per-class method info
+    // --------------------------------------------------
     private methodsByClass: Map<string, MethodCollection[]> = new Map();
     private classDeclarations: Map<string, ClassDeclaration> = new Map();
 
-    /**
-     * Now we keep events in a map keyed by className
-     */
-    private eventsByClass: Map<string, EventAbi[]> = new Map();
+    // --------------------------------------------------
+    // Global event declarations (key = eventName)
+    // --------------------------------------------------
+    private allEvents: Map<string, DeclaredEvent> = new Map();
+
+    // --------------------------------------------------
+    // Track usage: className -> set of eventNames used
+    // --------------------------------------------------
+    private eventsUsedInClass: Map<string, Set<string>> = new Map();
 
     private program: Program | undefined;
 
+    // Scratch state for the visitor
     private currentClassName: string | null = null;
-    private collectingEvent: boolean = false;
+    private collectingEvent: boolean = false; // are we in an event class?
     private currentEventName: string | null = null;
+    private isEventClass: boolean = false;
 
     // ------------------------------------------------------------
     // Lifecycle Hooks
     // ------------------------------------------------------------
-    afterParse(parser: Parser): void {
-        // Walk each source
+    public async afterParse(parser: Parser): Promise<void> {
+        // 1) Parse AST
         for (const source of parser.sources) {
             if (source.isLibrary || source.internalPath.startsWith('~lib/')) {
                 continue;
@@ -109,21 +136,43 @@ export default class MyTransform extends Transform {
             }
         }
 
-        // Build ABI per class
+        // 2) Build ABI per class
         const abiMap = this.buildAbiPerClass();
 
-        // Create an output folder named "abis"
+        // 3) Create an output folder named "abis"
         fs.mkdirSync('abis', { recursive: true });
 
-        // Write one JSON file per class
+        // 4) Write one JSON + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
-            // e.g. "abis/MyContract.abi.json"
+            if (abiObj.functions.length === 0) continue;
+
+            // JSON
             const filePath = `abis/${className}.abi.json`;
             fs.writeFileSync(filePath, JSON.stringify(abiObj, null, 4));
             logger.success(`ABI generated to ${filePath}`);
+
+            // DTS
+            const dtsPath = `abis/${className}.d.ts`;
+            const dtsContents = this.buildDtsForClass(className, abiObj);
+            const formattedDts = await prettier.format(dtsContents, {
+                parser: 'typescript',
+                printWidth: 100,
+                trailingComma: 'all',
+                tabWidth: 4,
+                semi: true,
+                singleQuote: true,
+                quoteProps: 'as-needed',
+                bracketSpacing: true,
+                bracketSameLine: true,
+                arrowParens: 'always',
+                singleAttributePerLine: true,
+            });
+
+            fs.writeFileSync(dtsPath, formattedDts);
+            logger.success(`Type definitions generated to ${dtsPath}`);
         }
 
-        // Inject or overwrite `execute` where needed
+        // 5) Inject/overwrite `execute` in each relevant class
         for (const [className, methods] of this.methodsByClass.entries()) {
             if (!methods.length) continue;
 
@@ -134,11 +183,10 @@ export default class MyTransform extends Transform {
                 continue;
             }
 
-            // Build and parse the new method
             const methodText = this.buildExecuteMethod(className, methods);
             const newMember = SimpleParser.parseClassMember(methodText, classDecl);
 
-            // Overwrite if exists
+            // Overwrite if it exists
             const existingIndex = classDecl.members.findIndex((member) => {
                 return (
                     member.kind === NodeKind.MethodDeclaration &&
@@ -153,19 +201,21 @@ export default class MyTransform extends Transform {
                 classDecl.members.push(newMember);
             }
         }
+
+        // 6) Check for "unused" events and log warnings
+        this.checkUnusedEvents();
     }
 
     afterInitialize(program: Program): void {
         super.afterInitialize?.(program);
         this.program = program;
 
-        // Resolve internalName for each method
+        // We fill in "internalName" for each method
         for (const [className, methods] of this.methodsByClass.entries()) {
             for (const methodInfo of methods) {
                 const resolvedName = this.getInternalNameForMethodDeclaration(
                     methodInfo.declaration,
                 );
-
                 if (resolvedName) {
                     methodInfo.internalName = resolvedName;
                 } else {
@@ -178,34 +228,209 @@ export default class MyTransform extends Transform {
     }
 
     // ------------------------------------------------------------
-    // Build the `execute` method stubs
+    //  Build final ABI per class
+    // ------------------------------------------------------------
+    private buildAbiPerClass(): Map<string, ClassABI> {
+        const result = new Map<string, ClassABI>();
+
+        // For each known class, gather the methods
+        for (const [className, methods] of this.methodsByClass.entries()) {
+            // 1) Build "functions"
+            const functions = methods.map((m) => {
+                // inputs
+                const inputs = m.paramDefs.map((p, idx) => {
+                    if (typeof p === 'string') {
+                        return {
+                            name: `param${idx + 1}`,
+                            type: this.mapToAbiDataType(p),
+                        };
+                    } else {
+                        return {
+                            name: p.name,
+                            type: this.mapToAbiDataType(p.type),
+                        };
+                    }
+                });
+
+                // outputs
+                let outputs: { name: string; type: ABIDataTypes }[] = [];
+                if (m.returnDefs.length > 0) {
+                    outputs = m.returnDefs.map((p, idx) => {
+                        if (typeof p === 'string') {
+                            return {
+                                name: `returnVal${idx + 1}`,
+                                type: this.mapToAbiDataType(p),
+                            };
+                        } else {
+                            return {
+                                name: p.name,
+                                type: this.mapToAbiDataType(p.type),
+                            };
+                        }
+                    });
+                }
+
+                return {
+                    name: m.methodName,
+                    type: 'Function' as const,
+                    inputs,
+                    outputs,
+                };
+            });
+
+            // 2) Gather which events this class used
+            const usedEventNames = this.eventsUsedInClass.get(className) || new Set();
+
+            // 3) Convert them to ABI
+            const events = Array.from(usedEventNames)
+                .map((evName) => {
+                    const declared = this.allEvents.get(evName);
+                    if (!declared) {
+                        // if user referenced an event that doesn't exist, we warn in checkUnusedEvents,
+                        // but let's skip adding a null event.
+                        return null;
+                    }
+                    return {
+                        name: declared.eventName,
+                        values: declared.params.map((p) => ({
+                            name: p.name,
+                            type: p.type,
+                        })),
+                        type: 'Event' as const,
+                    };
+                })
+                .filter((x) => x !== null) as ClassABI['events']; // remove null placeholders
+
+            // 4) Build final
+            result.set(className, { functions, events });
+        }
+
+        return result;
+    }
+
+    // ------------------------------------------------------------
+    //  Generate .d.ts for each class
+    // ------------------------------------------------------------
+    private buildDtsForClass(className: string, abiObj: ClassABI): string {
+        const interfaceName = `I${className}`;
+
+        // 1) Event type definitions
+        const eventTypeDefs: string[] = [];
+        for (const evt of abiObj.events) {
+            const fields = evt.values
+                .map((v) => {
+                    const tsType = this.mapAbiTypeToTypescript(v.type);
+                    return `  readonly ${v.name}: ${tsType};`;
+                })
+                .join('\n');
+
+            const eventName = `${evt.name}Event`;
+            eventTypeDefs.push(`export type ${eventName} = {\n${fields}\n};`);
+        }
+
+        // 2) Specialized call-result types
+        const methodsInClass = this.methodsByClass.get(className) || [];
+        const callResultTypes: string[] = [];
+
+        for (const fn of abiObj.functions) {
+            const originalMethod = methodsInClass.find((m) => m.methodName === fn.name);
+            const hasOutputs = fn.outputs.length > 0;
+            const hasEmittedEvents = originalMethod && originalMethod.emittedEvents.length > 0;
+
+            const typeName = this.toPascalCase(fn.name);
+
+            // build the "outputs" object-literal
+            let outputLines: string[] = [];
+            if (hasOutputs) {
+                for (const o of fn.outputs) {
+                    const tsType = this.mapAbiTypeToTypescript(o.type);
+                    outputLines.push(`  ${o.name}: ${tsType};`);
+                }
+            }
+            const outputObj = outputLines.length ? `{\n${outputLines.join('\n')}\n}` : '{}';
+
+            // build the union of events
+            let eventUnion = 'never';
+            if (hasEmittedEvents && originalMethod) {
+                // e.g. "FooEvent | BarEvent"
+                eventUnion = originalMethod.emittedEvents
+                    .map((eName) => `${eName}Event`)
+                    .join(' | ');
+            }
+
+            // e.g. OPNetEvent<FooEvent | BarEvent>[]
+            const eventsParam = `OPNetEvent<${eventUnion}>[]`;
+
+            const docBlock = `
+/**
+ * @description Represents the result of the ${fn.name} function call.
+ */
+`.trim();
+
+            callResultTypes.push(`
+${docBlock}
+export type ${typeName} = CallResult<
+  ${outputObj},
+  ${eventsParam}
+>;
+`);
+        }
+
+        // 3) The interface
+        const interfaceLines: string[] = [
+            `export interface ${interfaceName} extends IOP_NETContract {`,
+        ];
+
+        for (const fn of abiObj.functions) {
+            // param list
+            const paramList = fn.inputs
+                .map((p) => {
+                    const tsType = this.mapAbiTypeToTypescript(p.type);
+                    return `${p.name}: ${tsType}`;
+                })
+                .join(', ');
+
+            const callResultName = this.toPascalCase(fn.name);
+            interfaceLines.push(`  ${fn.name}(${paramList}): Promise<${callResultName}>;`);
+        }
+        interfaceLines.push('}');
+
+        // combine
+        return [
+            `import { Address, AddressMap } from '@btc-vision/transaction';`,
+            `import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';`,
+            '',
+            '// ------------------------------------------------------------------',
+            '// Event Definitions',
+            '// ------------------------------------------------------------------',
+            ...eventTypeDefs,
+            '',
+            '// ------------------------------------------------------------------',
+            '// Call Results',
+            '// ------------------------------------------------------------------',
+            ...callResultTypes,
+            '',
+            '// ------------------------------------------------------------------',
+            `// ${interfaceName}`,
+            '// ------------------------------------------------------------------',
+            ...interfaceLines,
+            '',
+        ].join('\n');
+    }
+
+    // ------------------------------------------------------------
+    //  Build the `execute` method stubs
     // ------------------------------------------------------------
     private buildExecuteMethod(_className: string, methods: MethodCollection[]): string {
-        let bodyLines: string[] = [];
+        const bodyLines: string[] = [];
 
         for (const m of methods) {
-            // Build the signature from paramDefs
+            // Build the method signature from paramDefs
             const realNames = m.paramDefs.map((param) => {
                 if (typeof param === 'string') {
                     return param;
                 }
-
-                // If it's NamedParameter, param.type might be "ABIDataTypes.XYZ" or a simple string
-                const type = param.type;
-                if (type.startsWith('ABIDataTypes.')) {
-                    const enumType = type.replace('ABIDataTypes.', '');
-                    const enumValue = ABIDataTypes[enumType as keyof typeof ABIDataTypes];
-
-                    if (!enumValue) {
-                        throw new Error(`Invalid abi type (from string): ${enumType}`);
-                    }
-                    const selectorValue = AbiTypeToStr[enumValue];
-                    if (!selectorValue) {
-                        throw new Error(`Invalid abi type (to string): ${enumValue}`);
-                    }
-                    return selectorValue;
-                }
-                return type;
+                return param.type; // NamedParameter => param.type
             });
 
             const sig = `${m.methodName}(${realNames.join(',')})`;
@@ -224,7 +449,6 @@ export default class MyTransform extends Transform {
             );
         }
 
-        // Fallback
         bodyLines.push('return super.execute(selector, calldata);');
 
         return `
@@ -234,90 +458,37 @@ export default class MyTransform extends Transform {
       }`;
     }
 
-    private getInternalNameForMethodDeclaration(methodDecl: MethodDeclaration): string | null {
-        if (!this.program) return null;
-        const element = this.program.getElementByDeclaration(methodDecl);
-        if (!element) return null;
-
-        if (element.kind === ElementKind.FunctionPrototype) {
-            return (element as FunctionPrototype).internalName;
-        } else if (element.kind === ElementKind.Function) {
-            return element.internalName;
-        }
-        return null;
-    }
-
-    // ------------------------------------------------------------
-    // Build final ABI per class
-    // ------------------------------------------------------------
-    private buildAbiPerClass(): Map<string, ClassABI> {
-        const result = new Map<string, ClassABI>();
-
-        // For each known class, gather the methods and events
-        for (const [className, methods] of this.methodsByClass.entries()) {
-            const eventArray = this.eventsByClass.get(className) || [];
-
-            const functions = methods.map((m) => {
-                // inputs
-                const inputs = m.paramDefs.map((p, idx) => {
-                    if (typeof p === 'string') {
-                        return {
-                            name: `param${idx + 1}`,
-                            type: this.mapToAbiDataType(p),
-                        };
-                    } else {
-                        return {
-                            name: p.name,
-                            type: this.mapToAbiDataType(p.type),
-                        };
-                    }
-                });
-
-                // outputs (use returnDefs if provided, else fallback)
-                let outputs: { name: string; type: ABIDataTypes }[];
-                if (m.returnDefs.length > 0) {
-                    outputs = m.returnDefs.map((p, idx) => {
-                        if (typeof p === 'string') {
-                            return {
-                                name: `returnVal${idx + 1}`,
-                                type: this.mapToAbiDataType(p),
-                            };
-                        } else {
-                            return {
-                                name: p.name,
-                                type: this.mapToAbiDataType(p.type),
-                            };
-                        }
-                    });
-                } else {
-                    outputs = [];
+    private checkUnusedEvents(): void {
+        /**
+         * For each declared event:
+         *   - see if it's used in ANY class (based on eventsUsedInClass)
+         *   - if not used, warn
+         */
+        const usedEvents = new Set<string>();
+        for (const [, usedSet] of this.eventsUsedInClass.entries()) {
+            for (const evName of usedSet) {
+                usedEvents.add(evName);
+                // If it doesn't exist in allEvents, warn
+                if (!this.allEvents.has(evName)) {
+                    logger.warn(
+                        `Method references event '${evName}' which is not declared anywhere.`,
+                    );
                 }
-
-                return {
-                    name: m.methodName,
-                    type: 'Function' as const,
-                    inputs,
-                    outputs,
-                };
-            });
-
-            const events = eventArray.map((e) => ({
-                name: e.eventName,
-                values: e.params.map((p) => ({
-                    name: p.name,
-                    type: p.type,
-                })),
-                type: 'Event' as const,
-            }));
-
-            result.set(className, { functions, events });
+            }
         }
 
-        return result;
+        // check for unused
+        for (const evName of this.allEvents.keys()) {
+            if (!usedEvents.has(evName)) {
+                logger.warn(
+                    `Event '${evName}' was declared but never used (no @emit referencing it).`,
+                );
+            }
+        }
     }
 
     // ------------------------------------------------------------
-    // AST Traversal
+    //  AST Visitor
     // ------------------------------------------------------------
     private visitStatement(stmt: Statement): void {
         switch (stmt.kind) {
@@ -340,21 +511,34 @@ export default class MyTransform extends Transform {
         this.currentClassName = node.name.text;
         this.classDeclarations.set(node.name.text, node);
 
-        // Initialize events array for this class if not present
-        if (!this.eventsByClass.has(node.name.text)) {
-            this.eventsByClass.set(node.name.text, []);
+        // Set up methods array if not present
+        if (!this.methodsByClass.has(node.name.text)) {
+            this.methodsByClass.set(node.name.text, []);
         }
 
-        // check if it's an @event class => parse fields as event
-        let isEventClass = false;
+        // Also set up usage tracking
+        if (!this.eventsUsedInClass.has(node.name.text)) {
+            this.eventsUsedInClass.set(node.name.text, new Set());
+        }
+
+        // Check if it's an event class
+        this.isEventClass = false;
         let possibleEventName: string | null = null;
 
+        // 1) Check "extends NetEvent"
+        if (node.extendsType && node.extendsType.name.identifier.text === 'NetEvent') {
+            this.isEventClass = true;
+            possibleEventName = node.name.text;
+            logger.log(`Found event class: ${node.name.text}`);
+        }
+
+        // 2) Check @event decorator
         if (node.decorators) {
             for (const dec of node.decorators) {
                 if (dec.name.kind === NodeKind.Identifier) {
                     const decName = (dec.name as IdentifierExpression).text;
                     if (decName === 'event') {
-                        isEventClass = true;
+                        this.isEventClass = true;
                         if (dec.args && dec.args.length > 0) {
                             possibleEventName = unquote(dec.args[0].range.toString());
                         }
@@ -362,37 +546,51 @@ export default class MyTransform extends Transform {
                 }
             }
         }
-        if (isEventClass) {
+
+        if (this.isEventClass) {
             this.collectingEvent = true;
             this.currentEventName = possibleEventName || node.name.text;
+            // Add initial blank event to allEvents map
+            if (!this.allEvents.has(this.currentEventName)) {
+                this.allEvents.set(this.currentEventName, {
+                    eventName: this.currentEventName,
+                    params: [],
+                });
+            }
         }
 
-        // visit members
+        // Visit members
         for (const member of node.members) {
             this.visitStatement(member);
         }
 
-        // reset event-collecting state
-        if (isEventClass) {
-            this.collectingEvent = false;
-            this.currentEventName = null;
-        }
+        // Reset
+        this.collectingEvent = false;
+        this.currentEventName = null;
+        this.isEventClass = false;
         this.currentClassName = null;
     }
 
     private visitMethodDeclaration(node: MethodDeclaration): void {
         if (!this.currentClassName) return;
+
+        // If it's the constructor of an event class, parse it
+        if (this.isEventClass && node.name.text === 'constructor' && this.currentEventName) {
+            this.parseEventConstructor(node, this.currentEventName);
+            // don't `return` here because it might also have decorators
+        }
+
         if (!node.decorators) return;
 
-        // We will combine info from @method(...) and @returns(...)
         let methodInfo: MethodCollection | null = null;
 
+        // Check each decorator
         for (const dec of node.decorators) {
             if (dec.name.kind !== NodeKind.Identifier) continue;
             const decName = (dec.name as IdentifierExpression).text;
 
             if (decName === 'method') {
-                // Gather raw strings from the decorator arguments
+                // Gather raw strings from @method(...) arguments
                 const rawArgs: string[] = [];
                 if (dec.args && dec.args.length > 0) {
                     for (const arg of dec.args) {
@@ -401,18 +599,15 @@ export default class MyTransform extends Transform {
                 }
 
                 const { methodName, paramDefs } = this.parseDecoratorArgs(rawArgs, node.name.text);
-
-                // Create the methodInfo if not existing
                 if (!methodInfo) {
                     methodInfo = {
                         methodName,
                         paramDefs,
                         returnDefs: [],
                         declaration: node,
+                        emittedEvents: [],
                     };
                 } else {
-                    // If methodInfo was already created by a @returns decorator,
-                    // just update the methodName & paramDefs
                     methodInfo.methodName = methodName;
                     methodInfo.paramDefs = paramDefs;
                 }
@@ -427,36 +622,57 @@ export default class MyTransform extends Transform {
                 const returnDefs = this.parseParamDefs(rawArgs);
 
                 if (!methodInfo) {
-                    // Possibly a method has only @returns, no @method
-                    // We'll use the method's actual name as fallback
                     methodInfo = {
                         methodName: node.name.text,
                         paramDefs: [],
                         returnDefs,
                         declaration: node,
+                        emittedEvents: [],
                     };
                 } else {
                     methodInfo.returnDefs = returnDefs;
                 }
+            } else if (decName === 'emit') {
+                // e.g. @emit("DepositEvent", "SomeOtherEvent")
+                const rawArgs: string[] = [];
+                if (dec.args && dec.args.length > 0) {
+                    for (const arg of dec.args) {
+                        rawArgs.push(unquote(arg.range.toString()));
+                    }
+                }
+
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+
+                // Record usage
+                const usageSet = this.eventsUsedInClass.get(this.currentClassName) as Set<string>;
+                for (const evName of rawArgs) {
+                    usageSet.add(evName);
+                }
+
+                methodInfo.emittedEvents.push(...rawArgs);
             }
         }
 
-        // If we got either @method or @returns, store the method info
         if (methodInfo) {
-            let arr = this.methodsByClass.get(this.currentClassName);
-            if (!arr) {
-                arr = [];
-                this.methodsByClass.set(this.currentClassName, arr);
-            }
-            // If this method is encountered again with a second decorator,
-            // we want to merge rather than push a second entry.
-            // The simplest approach: check if the same declaration is already in the array.
+            const arr = this.methodsByClass.get(this.currentClassName);
+            if (!arr) return;
             const existing = arr.find((m) => m.declaration === node);
             if (existing) {
-                // Overwrite existing one with updated info (methodName, paramDefs, returnDefs).
+                // merge
                 existing.methodName = methodInfo.methodName;
                 existing.paramDefs = methodInfo.paramDefs;
                 existing.returnDefs = methodInfo.returnDefs;
+                existing.emittedEvents = [
+                    ...new Set([...existing.emittedEvents, ...methodInfo.emittedEvents]),
+                ];
             } else {
                 arr.push(methodInfo);
             }
@@ -464,36 +680,104 @@ export default class MyTransform extends Transform {
     }
 
     private visitFieldDeclaration(node: FieldDeclaration): void {
-        // For an @event class, every field is part of the event ABI
-        if (!this.collectingEvent || !this.currentEventName || !this.currentClassName) return;
-        const fieldName = node.name.text;
-
-        // We do not proceed if the field has no type:
+        // If we are collecting an event (NetEvent or @event class), treat the fields as event params
+        if (!this.collectingEvent || !this.currentEventName) return;
         if (!node.type) return;
+
+        const fieldName = node.name.text;
         const typeStr = node.type.range.toString();
 
-        // Add to the relevant class's event array
-        const eventArr = this.eventsByClass.get(this.currentClassName);
-        if (!eventArr) return; // should never happen if we've properly set it
+        const ev = this.allEvents.get(this.currentEventName);
+        if (!ev) {
+            // Should not happen if we set it earlier, but guard anyway
+            return;
+        }
 
-        eventArr.push({
-            eventName: this.currentEventName,
-            params: [
-                {
-                    name: fieldName,
-                    type: this.mapToAbiDataType(typeStr),
-                },
-            ],
+        ev.params.push({
+            name: fieldName,
+            type: this.mapToAbiDataType(typeStr),
         });
+    }
+
+    private parseEventConstructor(node: MethodDeclaration, eventName: string): void {
+        // Look for super("Foo", ...)
+        let finalName = eventName;
+
+        const methodBody = node.body;
+        if (methodBody && methodBody.kind === NodeKind.Block) {
+            const block = methodBody as BlockStatement;
+
+            for (const stmt of block.statements) {
+                if (stmt.kind === NodeKind.Expression) {
+                    const exprStmt = stmt as ExpressionStatement;
+                    if (exprStmt.expression.kind === NodeKind.Call) {
+                        const callExpr = exprStmt.expression as CallExpression;
+                        if (callExpr.expression.kind === NodeKind.Super) {
+                            // super("Deposit", ...)
+                            if (callExpr.args && callExpr.args.length > 0) {
+                                const possibleName = unquote(callExpr.args[0].range.toString());
+                                if (possibleName) {
+                                    finalName = possibleName;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If user changed the name in super(...), update the map key
+        if (finalName !== eventName) {
+            // move or unify the event in allEvents
+            const old = this.allEvents.get(eventName);
+            if (old) {
+                this.allEvents.delete(eventName);
+                const existing = this.allEvents.get(finalName);
+                if (existing) {
+                    // merge the params if needed
+                    existing.params.push(...old.params);
+                } else {
+                    this.allEvents.set(finalName, {
+                        eventName: finalName,
+                        params: old.params,
+                    });
+                }
+            }
+        }
+
+        // Collect constructor parameters
+        const ev = this.allEvents.get(finalName);
+        if (!ev) return; // sanity check
+
+        if (node.signature.parameters) {
+            for (const param of node.signature.parameters) {
+                const pName = param.name.text;
+                const pTypeStr = param.type ? param.type.range.toString() : 'unknown';
+
+                ev.params.push({
+                    name: pName,
+                    type: this.mapToAbiDataType(pTypeStr),
+                });
+            }
+        }
     }
 
     // ------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------
-    /**
-     * Takes raw arguments from a @method(...) decorator and differentiates
-     * between [methodName, ...params] vs. [param1, param2, ...].
-     */
+    private getInternalNameForMethodDeclaration(methodDecl: MethodDeclaration): string | null {
+        if (!this.program) return null;
+        const element = this.program.getElementByDeclaration(methodDecl);
+        if (!element) return null;
+
+        if (element.kind === ElementKind.FunctionPrototype) {
+            return (element as FunctionPrototype).internalName;
+        } else if (element.kind === ElementKind.Function) {
+            return element.internalName;
+        }
+        return null;
+    }
+
     private parseDecoratorArgs(
         rawArgs: string[],
         defaultMethodName: string,
@@ -525,20 +809,10 @@ export default class MyTransform extends Transform {
         }
     }
 
-    /**
-     * For @returns(...), we do not treat the first item as a method name
-     * so we parse everything as param definitions.
-     */
     private parseParamDefs(rawArgs: string[]): ParamDefinition[] {
         return rawArgs.map((arg) => this.parseParamDefinition(arg));
     }
 
-    /**
-     * Attempt to parse a single string argument into a named param, or fallback to raw string.
-     *
-     *  - If it looks like an object-literal (JSON) with { name, type }, parse as NamedParameter
-     *  - Otherwise treat as a simple type string (e.g. "uint256")
-     */
     private parseParamDefinition(raw: string): ParamDefinition {
         const trimmed = raw.trim();
         if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
@@ -548,22 +822,17 @@ export default class MyTransform extends Transform {
                     return { name: parsed.name, type: parsed.type };
                 }
             } catch (e) {
-                // ignore parse errors and fallback
+                // ignore parse errors and fallback to string
             }
         }
         return trimmed;
     }
 
-    /**
-     * Checks if we recognize a piece of data as a valid param type.
-     */
     private isParamDefinition(param: ParamDefinition): boolean {
         if (typeof param === 'string') {
             return param in StrToAbiType || param.startsWith('ABIDataTypes.');
         } else {
-            if (param.type.startsWith('ABIDataTypes.')) {
-                return true;
-            }
+            if (param.type.startsWith('ABIDataTypes.')) return true;
             return param.type in StrToAbiType;
         }
     }
@@ -573,12 +842,60 @@ export default class MyTransform extends Transform {
      */
     private mapToAbiDataType(str: string): ABIDataTypes {
         if (str.startsWith('ABIDataTypes.')) {
-            // "ABIDataTypes.UINT256" => "UINT256"
+            // e.g. "ABIDataTypes.UINT256"
             const enumName = str.replace('ABIDataTypes.', '');
             return enumName as ABIDataTypes;
         }
-
         // else check our known mapping
-        return StrToAbiType[str];
+        return StrToAbiType[str] || StrToAbiType['unknown'];
+    }
+
+    private mapAbiTypeToTypescript(abiType: ABIDataTypes): string {
+        switch (abiType) {
+            case ABIDataTypes.ADDRESS:
+                return 'Address';
+            case ABIDataTypes.STRING:
+                return 'string';
+            case ABIDataTypes.BOOL:
+                return 'boolean';
+            case ABIDataTypes.BYTES:
+                return 'Uint8Array';
+            case ABIDataTypes.UINT8:
+            case ABIDataTypes.UINT16:
+            case ABIDataTypes.UINT32:
+                return 'number';
+            case ABIDataTypes.UINT64:
+            case ABIDataTypes.INT128:
+            case ABIDataTypes.UINT128:
+            case ABIDataTypes.UINT256:
+                return 'bigint';
+            case ABIDataTypes.ADDRESS_UINT256_TUPLE:
+                return 'AddressMap<bigint>';
+            case ABIDataTypes.ARRAY_OF_ADDRESSES:
+                return 'Address[]';
+            case ABIDataTypes.ARRAY_OF_STRING:
+                return 'string[]';
+            case ABIDataTypes.ARRAY_OF_BYTES:
+                return 'Uint8Array[]';
+            case ABIDataTypes.ARRAY_OF_UINT8:
+            case ABIDataTypes.ARRAY_OF_UINT16:
+            case ABIDataTypes.ARRAY_OF_UINT32:
+                return 'number[]';
+            case ABIDataTypes.ARRAY_OF_UINT64:
+            case ABIDataTypes.ARRAY_OF_UINT128:
+            case ABIDataTypes.ARRAY_OF_UINT256:
+                return 'bigint[]';
+            case ABIDataTypes.BYTES32:
+                return 'Uint8Array';
+            default:
+                logger.warn(`Unknown or unhandled type definition for ${abiType}`);
+                return 'unknown';
+        }
+    }
+
+    private toPascalCase(str: string): string {
+        return str
+            .replace(/(^\w|_\w)/g, (match) => match.replace('_', '').toUpperCase())
+            .replace(/[^A-Za-z0-9]/g, '');
     }
 }
