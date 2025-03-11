@@ -20,7 +20,7 @@ import {
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
 import * as prettier from 'prettier';
-import { ABIDataTypes } from 'opnet';
+import { ABIDataTypes, AbiTypeToStr } from 'opnet';
 import { StrToAbiType } from './StrToAbiType.js';
 import { Logger } from '@btc-vision/logger';
 import { unquote } from './utils/index.js';
@@ -370,7 +370,22 @@ export type ${typeName} = CallResult<
                 if (typeof param === 'string') {
                     return param;
                 }
-                return param.type; // NamedParameter => param.type
+
+                const type = param.type;
+                if (type.startsWith('ABIDataTypes.')) {
+                    const enumType = type.replace('ABIDataTypes.', '');
+                    const enumValue = ABIDataTypes[enumType as keyof typeof ABIDataTypes];
+
+                    if (!enumValue) {
+                        throw new Error(`Invalid abi type (from string): ${enumType}`);
+                    }
+                    const selectorValue = AbiTypeToStr[enumValue];
+                    if (!selectorValue) {
+                        throw new Error(`Invalid abi type (to string): ${enumValue}`);
+                    }
+                    return selectorValue;
+                }
+                return type;
             });
 
             const sig = `${m.methodName}(${realNames.join(',')})`;
@@ -782,7 +797,6 @@ export type ${typeName} = CallResult<
      */
     private mapToAbiDataType(str: string): ABIDataTypes {
         if (str.startsWith('ABIDataTypes.')) {
-            // e.g. "ABIDataTypes.UINT256"
             const enumName = str.replace('ABIDataTypes.', '');
             return enumName as ABIDataTypes;
         }
