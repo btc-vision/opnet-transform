@@ -295,7 +295,4 @@ npx asc -c asconfig.json
 
 ## License
 
-[MIT](./LICENSE) (or whichever license you include).
-
-Feel free to adapt and extend this transformer for your own projects. If you have any suggestions, open an issue or PR
-on GitHub!
+[MIT](./LICENSE)
