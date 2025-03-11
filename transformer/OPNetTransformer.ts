@@ -57,6 +57,20 @@ interface MethodCollection {
     internalName?: string;
 }
 
+interface ClassABI {
+    functions: {
+        name: string;
+        type: 'Function';
+        inputs: { name: string; type: ABIDataTypes }[];
+        outputs: { name: string; type: ABIDataTypes }[];
+    }[];
+    events: {
+        name: string;
+        values: { name: string; type: ABIDataTypes }[];
+        type: 'Event';
+    }[];
+}
+
 // ------------------------------------------------------------------
 // Transformer
 // ------------------------------------------------------------------
@@ -70,7 +84,11 @@ export default class MyTransform extends Transform {
     private methodsByClass: Map<string, MethodCollection[]> = new Map();
     private classDeclarations: Map<string, ClassDeclaration> = new Map();
 
-    private events: EventAbi[] = [];
+    /**
+     * Now we keep events in a map keyed by className
+     */
+    private eventsByClass: Map<string, EventAbi[]> = new Map();
+
     private program: Program | undefined;
 
     private currentClassName: string | null = null;
@@ -91,10 +109,19 @@ export default class MyTransform extends Transform {
             }
         }
 
-        // Build ABI JSON
-        const abiJson = JSON.stringify(this.buildAbi(), null, 4);
-        fs.writeFileSync('abi.json', abiJson);
-        logger.success('ABI generated to abi.json!');
+        // Build ABI per class
+        const abiMap = this.buildAbiPerClass();
+
+        // Create an output folder named "abis"
+        fs.mkdirSync('abis', { recursive: true });
+
+        // Write one JSON file per class
+        for (const [className, abiObj] of abiMap.entries()) {
+            // e.g. "abis/MyContract.abi.json"
+            const filePath = `abis/${className}.abi.json`;
+            fs.writeFileSync(filePath, JSON.stringify(abiObj, null, 4));
+            logger.success(`ABI generated to ${filePath}`);
+        }
 
         // Inject or overwrite `execute` where needed
         for (const [className, methods] of this.methodsByClass.entries()) {
@@ -188,10 +215,12 @@ export default class MyTransform extends Transform {
             const selectorHex = abiCoder.encodeSelector(sig);
             const selectorNum = `0x${selectorHex}`;
 
-            logger.debugBright(`Found function ${sig} -> ${selectorNum}`);
+            logger.debugBright(
+                `Found function ${sig} -> ${selectorNum} (${m.declaration.name.text})`,
+            );
 
             bodyLines.push(
-                `if (selector == ${selectorNum}) return this.${m.methodName}(calldata);`,
+                `if (selector == ${selectorNum}) return this.${m.declaration.name.text}(calldata);`,
             );
         }
 
@@ -219,14 +248,16 @@ export default class MyTransform extends Transform {
     }
 
     // ------------------------------------------------------------
-    // Build final ABI
+    // Build final ABI per class
     // ------------------------------------------------------------
-    private buildAbi(): unknown {
-        const functions: unknown[] = [];
+    private buildAbiPerClass(): Map<string, ClassABI> {
+        const result = new Map<string, ClassABI>();
 
-        // Build function ABI from method definitions
-        for (const [_, methods] of this.methodsByClass) {
-            for (const m of methods) {
+        // For each known class, gather the methods and events
+        for (const [className, methods] of this.methodsByClass.entries()) {
+            const eventArray = this.eventsByClass.get(className) || [];
+
+            const functions = methods.map((m) => {
                 // inputs
                 const inputs = m.paramDefs.map((p, idx) => {
                     if (typeof p === 'string') {
@@ -262,26 +293,27 @@ export default class MyTransform extends Transform {
                     outputs = [];
                 }
 
-                functions.push({
+                return {
                     name: m.methodName,
-                    type: 'Function',
+                    type: 'Function' as const,
                     inputs,
                     outputs,
-                });
-            }
+                };
+            });
+
+            const events = eventArray.map((e) => ({
+                name: e.eventName,
+                values: e.params.map((p) => ({
+                    name: p.name,
+                    type: p.type,
+                })),
+                type: 'Event' as const,
+            }));
+
+            result.set(className, { functions, events });
         }
 
-        // Build event ABI
-        const events = this.events.map((e) => ({
-            name: e.eventName,
-            values: e.params.map((p) => ({
-                name: p.name,
-                type: p.type,
-            })),
-            type: 'Event',
-        }));
-
-        return { functions, events };
+        return result;
     }
 
     // ------------------------------------------------------------
@@ -307,6 +339,11 @@ export default class MyTransform extends Transform {
     private visitClassDeclaration(node: ClassDeclaration): void {
         this.currentClassName = node.name.text;
         this.classDeclarations.set(node.name.text, node);
+
+        // Initialize events array for this class if not present
+        if (!this.eventsByClass.has(node.name.text)) {
+            this.eventsByClass.set(node.name.text, []);
+        }
 
         // check if it's an @event class => parse fields as event
         let isEventClass = false;
@@ -428,14 +465,18 @@ export default class MyTransform extends Transform {
 
     private visitFieldDeclaration(node: FieldDeclaration): void {
         // For an @event class, every field is part of the event ABI
-        if (!this.collectingEvent || !this.currentEventName) return;
+        if (!this.collectingEvent || !this.currentEventName || !this.currentClassName) return;
         const fieldName = node.name.text;
 
         // We do not proceed if the field has no type:
         if (!node.type) return;
         const typeStr = node.type.range.toString();
 
-        this.events.push({
+        // Add to the relevant class's event array
+        const eventArr = this.eventsByClass.get(this.currentClassName);
+        if (!eventArr) return; // should never happen if we've properly set it
+
+        eventArr.push({
             eventName: this.currentEventName,
             params: [
                 {
@@ -477,7 +518,6 @@ export default class MyTransform extends Transform {
                 paramDefs: parsedItems,
             };
         } else {
-            // The first item is the method name => everything else is parameters
             // eslint-disable-next-line @typescript-eslint/no-base-to-string
             const methodName = String(firstItem);
             const paramDefs = parsedItems.slice(1);
