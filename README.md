@@ -170,8 +170,6 @@ Annotate a method with `@emit("EventNameA", "EventNameB")` if it triggers events
 
 ## Example Contract
 
-Below is the **simplified** example from your repository:
-
 ```ts
 import { u256 } from '@btc-vision/as-bignum/assembly';
 import {
