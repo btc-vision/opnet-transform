@@ -388,7 +388,7 @@ export type ${typeName} = CallResult<
                 return type;
             });
 
-            const sig = `${m.methodName}(${realNames.join(',')})`;
+            const sig = realNames.length ? `${m.methodName}(${realNames.join(',')})` : m.methodName;
             m.signature = sig;
 
             // 4-byte selector
