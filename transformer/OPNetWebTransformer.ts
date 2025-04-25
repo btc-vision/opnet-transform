@@ -3,6 +3,7 @@ import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assembl
 
 import parserTypeScript from 'prettier/parser-typescript';
 import prettier from 'prettier/standalone';
+import prettierPluginEstree from 'prettier/plugins/estree';
 
 export default class OpnetWebTransformer extends OPNetTransformer {
     private virtualFs: Map<string, string> = new Map();
@@ -57,7 +58,7 @@ export default class OpnetWebTransformer extends OPNetTransformer {
             const dtsPath = `abis/${className}.d.ts`;
             const dtsContents = this.buildDtsForClass(className, abiObj);
             const formattedDts = await prettier.format(dtsContents, {
-                plugins: [parserTypeScript],
+                plugins: [parserTypeScript, prettierPluginEstree],
                 parser: 'typescript',
                 printWidth: 100,
                 trailingComma: 'all',
