@@ -3,27 +3,19 @@ import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assembl
 
 import * as prettier from 'prettier';
 
-export class OpnetWebTransformer extends OPNetTransformer {
+export default class OpnetWebTransformer extends OPNetTransformer {
     private virtualFs: Map<string, string> = new Map();
 
-    constructor() {
-        super();
-    }
-
-    public async readFile(filename: string, baseDir: string): Promise<string | null> {
+    public readFile(filename: string, baseDir: string): string | null {
         return this.virtualFs.get(`${baseDir}/${filename}`) ?? null;
     }
 
-    public async writeFile(
-        filename: string,
-        contents: string | Uint8Array,
-        baseDir: string,
-    ): Promise<void> {
+    public writeFile(filename: string, contents: string | Uint8Array, baseDir: string): void {
         this.virtualFs.set(`${baseDir}/${filename}`, contents.toString());
         return;
     }
 
-    public async listFiles(dirname: string, baseDir: string): Promise<string[] | null> {
+    public listFiles(dirname: string, baseDir: string): string[] | null {
         const files: string[] = [];
 
         for (const [key] of this.virtualFs.entries()) {
