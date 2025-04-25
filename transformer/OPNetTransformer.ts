@@ -37,12 +37,14 @@ logger.info('Compiling smart contract...');
 
 const abiCoder = new ABICoder();
 
-export default class MyTransform extends Transform {
+export { logger, SimpleParser };
+
+export default class OPNetTransformer extends Transform {
     // --------------------------------------------------
     // Per-class method info
     // --------------------------------------------------
-    private methodsByClass: Map<string, MethodCollection[]> = new Map();
-    private classDeclarations: Map<string, ClassDeclaration> = new Map();
+    protected methodsByClass: Map<string, MethodCollection[]> = new Map();
+    protected classDeclarations: Map<string, ClassDeclaration> = new Map();
 
     // --------------------------------------------------
     // Global event declarations (key = eventName)
@@ -170,7 +172,7 @@ export default class MyTransform extends Transform {
     // ------------------------------------------------------------
     //  Build final ABI per class
     // ------------------------------------------------------------
-    private buildAbiPerClass(): Map<string, ClassABI> {
+    protected buildAbiPerClass(): Map<string, ClassABI> {
         const result = new Map<string, ClassABI>();
 
         // For each known class, gather the methods
@@ -251,7 +253,7 @@ export default class MyTransform extends Transform {
     // ------------------------------------------------------------
     //  Generate .d.ts for each class
     // ------------------------------------------------------------
-    private buildDtsForClass(className: string, abiObj: ClassABI): string {
+    protected buildDtsForClass(className: string, abiObj: ClassABI): string {
         const interfaceName = `I${className}`;
 
         // 1) Event type definitions
@@ -361,7 +363,7 @@ export type ${typeName} = CallResult<
     // ------------------------------------------------------------
     //  Build the `execute` method stubs
     // ------------------------------------------------------------
-    private buildExecuteMethod(_className: string, methods: MethodCollection[]): string {
+    protected buildExecuteMethod(_className: string, methods: MethodCollection[]): string {
         const bodyLines: string[] = [];
 
         for (const m of methods) {
@@ -413,7 +415,7 @@ export type ${typeName} = CallResult<
       }`;
     }
 
-    private checkUnusedEvents(): void {
+    protected checkUnusedEvents(): void {
         /**
          * For each declared event:
          *   - see if it's used in ANY class (based on eventsUsedInClass)
@@ -445,7 +447,7 @@ export type ${typeName} = CallResult<
     // ------------------------------------------------------------
     //  AST Visitor
     // ------------------------------------------------------------
-    private visitStatement(stmt: Statement): void {
+    protected visitStatement(stmt: Statement): void {
         switch (stmt.kind) {
             case NodeKind.ClassDeclaration:
                 this.visitClassDeclaration(stmt as ClassDeclaration);
