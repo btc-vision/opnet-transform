@@ -1,11 +1,11 @@
-import OPNetTransformer, { SimpleParser, logger } from './OPNetTransformer.js';
+import OPNetTransform, { SimpleParser, logger } from './OPNetTransform.js';
 import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
 
 import parserTypeScript from 'prettier/parser-typescript';
 import prettier from 'prettier/standalone';
 import prettierPluginEstree from 'prettier/plugins/estree';
 
-export default class OpnetWebTransformer extends OPNetTransformer {
+export default class OpnetWebTransform extends OPNetTransform {
     private virtualFs: Map<string, string> = new Map();
 
     public readFile(filename: string, baseDir: string): string | null {

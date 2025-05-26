@@ -38,5 +38,5 @@ export const build = buildESM;
 export default build;
 
 export function watch() {
-    gulp.watch(['transformer/**/*.ts', 'transformer/**/*.js'], gulp.series(buildESM));
+    gulp.watch(['transform/**/*.ts', 'transform/**/*.js'], gulp.series(buildESM));
 }
