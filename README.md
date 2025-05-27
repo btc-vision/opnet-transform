@@ -1,4 +1,4 @@
-# AssemblyScript Smart-Contract Transformer
+# AssemblyScript Smart Contract Transform
 
 ![Bitcoin](https://img.shields.io/badge/Bitcoin-000?style=for-the-badge&logo=bitcoin&logoColor=white)
 ![AssemblyScript](https://img.shields.io/badge/assembly%20script-%23000000.svg?style=for-the-badge&logo=assemblyscript&logoColor=white)
@@ -45,7 +45,7 @@ event definitions.
 
 ## Configuration
 
-To use this transformer, you should configure your AssemblyScript project with the following files:
+To use this transform, you should configure your AssemblyScript project with the following files:
 
 **`tsconfig.json`**:
 
@@ -100,12 +100,12 @@ To use this transformer, you should configure your AssemblyScript project with t
 
 In particular:
 
-- **`"transform": "@btc-vision/opnet-transform"`** instructs AssemblyScript to run this transformer on your code.
+- **`"transform": "@btc-vision/opnet-transform"`** instructs AssemblyScript to run this transform on your code.
 - The `"targets.release"` block is where you specify how to compile your `.wasm`, how aggressively to optimize, memory
   limits, etc.
 
 With both `tsconfig.json` and `asconfig.json` in place, simply run your build script (e.g. `asc --config asconfig.json`)
-to compile your AssemblyScript code through the transformer.
+to compile your AssemblyScript code through the transform.
 
 ---
 
@@ -160,7 +160,7 @@ A `@returns(...)` decorator can define the output parameters. For example:
 
 ### Emit Decorator
 
-Annotate a method with `@emit("EventNameA", "EventNameB")` if it triggers events. The transformer will:
+Annotate a method with `@emit("EventNameA", "EventNameB")` if it triggers events. The transform will:
 
 1. Assign those events to the contract’s ABI.
 2. Generate typed event definitions (like `EventNameAEvent` in the `.d.ts`).
