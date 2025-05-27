@@ -29,17 +29,17 @@ import { jsonrepair } from 'jsonrepair';
 import { ClassABI, DeclaredEvent, MethodCollection, ParamDefinition } from './interfaces/Abi.js';
 
 // ------------------------------------------------------------------
-// Transformer
+// Transform
 // ------------------------------------------------------------------
 const logger = new Logger();
-logger.setLogPrefix('OPNetTransformer');
+logger.setLogPrefix('OPNetTransform');
 logger.info('Compiling smart contract...');
 
 const abiCoder = new ABICoder();
 
 export { logger, SimpleParser };
 
-export default class OPNetTransformer extends Transform {
+export default class OPNetTransform extends Transform {
     // --------------------------------------------------
     // Per-class method info
     // --------------------------------------------------
