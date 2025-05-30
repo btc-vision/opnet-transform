@@ -1,6 +1,6 @@
 {
     "name": "@btc-vision/opnet-transform",
-    "version": "0.1.2",
+    "version": "0.1.3",
     "private": false,
     "description": "OP_NET AssemblyScript transform",
     "main": "build/OPNetTransform.js",
@@ -22,9 +22,7 @@
         "contract",
         "runtime",
         "opnet",
-        "OP_NET",
-        "wrapped bitcoin",
-        "wbtc"
+        "OP_NET"
     ],
     "repository": {
         "type": "git",

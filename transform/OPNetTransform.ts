@@ -16,6 +16,7 @@ import {
     CallExpression,
     ExpressionStatement,
     IdentifierExpression,
+    NamespaceDeclaration,
 } from 'types:assemblyscript/src/ast';
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
@@ -38,6 +39,12 @@ logger.info('Compiling smart contract...');
 const abiCoder = new ABICoder();
 
 export { logger, SimpleParser };
+
+function isAssemblyScriptStdLib(internalPath: string): boolean {
+    if (!internalPath.startsWith('~lib/')) return false;
+    if (internalPath.includes('@')) return false;
+    return !internalPath.includes('node_modules');
+}
 
 export default class OPNetTransform extends Transform {
     // --------------------------------------------------
@@ -68,23 +75,24 @@ export default class OPNetTransform extends Transform {
     // Lifecycle Hooks
     // ------------------------------------------------------------
     public async afterParse(parser: Parser): Promise<void> {
-        // 1) Parse AST
+        // Parse AST
         for (const source of parser.sources) {
-            if (source.isLibrary || source.internalPath.startsWith('~lib/')) {
+            if (isAssemblyScriptStdLib(source.internalPath)) {
                 continue;
             }
+
             for (const stmt of source.statements) {
                 this.visitStatement(stmt);
             }
         }
 
-        // 2) Build ABI per class
+        // Build ABI per class
         const abiMap = this.buildAbiPerClass();
 
-        // 3) Create an output folder named "abis"
+        // Create an output folder named "abis"
         fs.mkdirSync('abis', { recursive: true });
 
-        // 4) Write one JSON + .d.ts per class
+        // Write one JSON + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
@@ -114,7 +122,7 @@ export default class OPNetTransform extends Transform {
             logger.success(`Type definitions generated to ${dtsPath}`);
         }
 
-        // 5) Inject/overwrite `execute` in each relevant class
+        // Inject/overwrite `execute` in each relevant class
         for (const [className, methods] of this.methodsByClass.entries()) {
             if (!methods.length) continue;
 
@@ -144,7 +152,7 @@ export default class OPNetTransform extends Transform {
             }
         }
 
-        // 6) Check for "unused" events and log warnings
+        // Check for "unused" events and log warnings
         this.checkUnusedEvents();
     }
 
@@ -458,6 +466,14 @@ export type ${typeName} = CallResult<
             case NodeKind.FieldDeclaration:
                 this.visitFieldDeclaration(stmt as FieldDeclaration);
                 break;
+            case NodeKind.NamespaceDeclaration: {
+                const ns = stmt as NamespaceDeclaration;
+                for (const inner of ns.members) {
+                    this.visitStatement(inner);
+                }
+                break;
+            }
+
             default:
                 // no-op
                 break;
