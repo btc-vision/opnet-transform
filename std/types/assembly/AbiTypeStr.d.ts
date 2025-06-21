@@ -10,6 +10,7 @@ export declare type AllowedAbiTypes =
     | 'uint16'
     | 'uint8'
     | 'string'
+    | 'bytes4'
     | 'bytes32'
     | 'tuple(address,uint256)[]'
     | 'address[]'

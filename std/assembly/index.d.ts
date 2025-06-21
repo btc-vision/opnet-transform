@@ -21,6 +21,7 @@ declare global {
         BOOL = 'BOOL',
         ADDRESS = 'ADDRESS',
         STRING = 'STRING',
+        BYTES4 = 'BYTES4',
         BYTES32 = 'BYTES32',
         BYTES = 'BYTES',
         ADDRESS_UINT256_TUPLE = 'ADDRESS_UINT256_TUPLE',

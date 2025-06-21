@@ -857,6 +857,7 @@ export type ${typeName} = CallResult<
             case ABIDataTypes.ARRAY_OF_UINT128:
             case ABIDataTypes.ARRAY_OF_UINT256:
                 return 'bigint[]';
+            case ABIDataTypes.BYTES4:
             case ABIDataTypes.BYTES32:
                 return 'Uint8Array';
             default:
