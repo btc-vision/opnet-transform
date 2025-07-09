@@ -40,7 +40,7 @@ const abiCoder = new ABICoder();
 
 export { logger, SimpleParser };
 
-function isAssemblyScriptStdLib(internalPath: string): boolean {
+export function isAssemblyScriptStdLib(internalPath: string): boolean {
     if (!internalPath.startsWith('~lib/')) return false;
     if (internalPath.includes('@')) return false;
     return !internalPath.includes('node_modules');
