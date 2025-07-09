@@ -1,6 +1,5 @@
-import OPNetTransform, { SimpleParser, logger } from './OPNetTransform.js';
+import OPNetTransform, { SimpleParser, logger, isAssemblyScriptStdLib } from './OPNetTransform.js';
 import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
-
 import parserTypeScript from 'prettier/parser-typescript';
 import prettier from 'prettier/standalone';
 import prettierPluginEstree from 'prettier/plugins/estree';
@@ -30,17 +29,18 @@ export default class OpnetWebTransform extends OPNetTransform {
     }
 
     public override async afterParse(parser: Parser): Promise<void> {
-        // 1) Parse AST
+        // Parse AST
         for (const source of parser.sources) {
-            if (source.isLibrary || source.internalPath.startsWith('~lib/')) {
+            if (isAssemblyScriptStdLib(source.internalPath)) {
                 continue;
             }
+
             for (const stmt of source.statements) {
                 this.visitStatement(stmt);
             }
         }
 
-        // 2) Build ABI per class
+        // Build ABI per class
         const abiMap = this.buildAbiPerClass();
 
         // 4) Write one JSON + .d.ts per class
