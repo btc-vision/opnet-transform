@@ -1,21 +1,18 @@
 {
     "name": "@btc-vision/opnet-transform",
-    "version": "0.1.7",
+    "version": "0.1.8",
     "private": false,
     "description": "OP_NET AssemblyScript transform",
     "main": "build/OPNetTransform.js",
     "types": "std/assembly/index.d.ts",
     "typings": "std/assembly/index.d.ts",
     "scripts": {
-        "postinstall": "npm run build",
         "build": "gulp"
     },
     "author": "OPNet Labs",
     "license": "MIT",
     "devDependencies": {
-        "@types/node": "^24.0.13",
-        "assemblyscript": "^0.28.3",
-        "prettier": "^3.6.2"
+        "@types/node": "^24.0.13"
     },
     "keywords": [
         "bitcoin",
@@ -32,6 +29,8 @@
     "homepage": "https://opnet.org",
     "type": "module",
     "dependencies": {
+        "prettier": "^3.6.2",
+        "assemblyscript": "^0.28.3",
         "@assemblyscript/loader": "^0.28.3",
         "@btc-vision/logger": "^1.0.6",
         "@btc-vision/transaction": "^1.5.4",
