@@ -45,7 +45,7 @@
         "jsonrepair": "^3.13.0",
         "opnet": "^1.6.1",
         "ts-node": "^10.9.2",
-        "typescript": "^5.9.2",
+        "typescript": "^5.8.3",
         "typescript-eslint": "^8.38.0"
     }
 }
