@@ -44,6 +44,7 @@ export const StrToAbiType: { [key: string]: ABIDataTypes } = {
     'Address[]': ABIDataTypes.ARRAY_OF_ADDRESSES,
     'Uint8Array[]': ABIDataTypes.ARRAY_OF_BYTES,
     Uint8Array: ABIDataTypes.BYTES,
+    boolean: ABIDataTypes.BOOL,
 };
 
 // reverse key -> value

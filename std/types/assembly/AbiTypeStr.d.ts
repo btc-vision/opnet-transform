@@ -21,7 +21,8 @@ export declare type AllowedAbiTypes =
     | 'uint16[]'
     | 'uint8[]'
     | 'bytes[]'
-    | 'string[]';
+    | 'string[]'
+    | 'boolean';
 
 export type MethodDecorator = <T>(
     target: Object,
