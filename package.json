@@ -1,6 +1,6 @@
 {
     "name": "@btc-vision/opnet-transform",
-    "version": "0.1.11",
+    "version": "0.1.12",
     "private": false,
     "description": "OP_NET AssemblyScript transform",
     "main": "build/OPNetTransform.js",
@@ -43,9 +43,9 @@
         "gulp-logger-new": "^1.0.1",
         "gulp-typescript": "^6.0.0-alpha.1",
         "jsonrepair": "^3.13.0",
-        "opnet": "^1.6.7",
+        "opnet": "^1.6.13",
         "ts-node": "^10.9.2",
         "typescript": "^5.9.2",
-        "typescript-eslint": "^8.40.0"
+        "typescript-eslint": "^8.41.0"
     }
 }
