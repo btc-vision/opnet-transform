@@ -1,6 +1,6 @@
 {
     "name": "@btc-vision/opnet-transform",
-    "version": "0.1.13",
+    "version": "0.1.14",
     "private": false,
     "description": "OP_NET AssemblyScript transform",
     "main": "build/OPNetTransform.js",
@@ -30,10 +30,10 @@
     "type": "module",
     "dependencies": {
         "@assemblyscript/loader": "^0.28.4",
-        "@btc-vision/logger": "^1.0.6",
-        "@btc-vision/transaction": "^1.6.8",
+        "@btc-vision/logger": "^1.0.7",
+        "@btc-vision/transaction": "^1.6.19",
         "@btc-vision/visitor-as": "^0.11.6",
-        "@eslint/js": "^9.34.0",
+        "@eslint/js": "9.38.0",
         "assemblyscript": "^0.28.4",
         "gulp": "^5.0.1",
         "gulp-cached": "^1.1.1",
