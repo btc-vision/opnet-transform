@@ -33,7 +33,7 @@
         "@btc-vision/logger": "^1.0.7",
         "@btc-vision/transaction": "^1.6.19",
         "@btc-vision/visitor-as": "^0.11.6",
-        "@eslint/js": "9.38.0",
+        "@eslint/js": "^9.39.1",
         "assemblyscript": "^0.28.4",
         "gulp": "^5.0.1",
         "gulp-cached": "^1.1.1",
