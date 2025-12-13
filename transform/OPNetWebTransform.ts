@@ -1,8 +1,8 @@
-import OPNetTransform, { SimpleParser, logger, isAssemblyScriptStdLib } from './OPNetTransform.js';
-import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
+import { MethodDeclaration, NodeKind, Parser } from 'assemblyscript/dist/assemblyscript.js';
 import parserTypeScript from 'prettier/parser-typescript';
-import prettier from 'prettier/standalone';
 import prettierPluginEstree from 'prettier/plugins/estree';
+import prettier from 'prettier/standalone';
+import OPNetTransform, { SimpleParser, isAssemblyScriptStdLib, logger } from './OPNetTransform.js';
 
 export default class OpnetWebTransform extends OPNetTransform {
     private virtualFs: Map<string, string> = new Map();
@@ -43,16 +43,29 @@ export default class OpnetWebTransform extends OPNetTransform {
         // Build ABI per class
         const abiMap = this.buildAbiPerClass();
 
-        // 4) Write one JSON + .d.ts per class
+        // 4) Write one TypeScript ABI + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
-            // JSON
-            const filePath = `abis/${className}.abi.json`;
-
-            this.writeFile(filePath, JSON.stringify(abiObj, null, 4), '.');
-
-            logger.success(`ABI generated to ${filePath}`);
+            // TypeScript ABI file
+            const abiTsPath = `abis/${className}.abi.ts`;
+            const abiTsContents = this.buildAbiTsFile(className, abiObj);
+            const formattedAbiTs = await prettier.format(abiTsContents, {
+                plugins: [parserTypeScript, prettierPluginEstree],
+                parser: 'typescript',
+                printWidth: 120,
+                trailingComma: 'all',
+                tabWidth: 4,
+                semi: true,
+                singleQuote: true,
+                quoteProps: 'as-needed',
+                bracketSpacing: true,
+                bracketSameLine: true,
+                arrowParens: 'always',
+                singleAttributePerLine: true,
+            });
+            this.writeFile(abiTsPath, formattedAbiTs, '.');
+            logger.success(`ABI generated to ${abiTsPath}`);
 
             // DTS
             const dtsPath = `abis/${className}.d.ts`;

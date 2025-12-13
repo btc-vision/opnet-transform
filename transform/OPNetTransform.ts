@@ -1,4 +1,3 @@
-import { Transform } from 'assemblyscript/transform';
 import {
     ClassDeclaration,
     FieldDeclaration,
@@ -8,6 +7,7 @@ import {
     Program,
     Statement,
 } from 'assemblyscript/dist/assemblyscript.js';
+import { Transform } from 'assemblyscript/transform';
 import { fs } from 'assemblyscript/util/node.js';
 // @ts-ignore
 import { SimpleParser } from '@btc-vision/visitor-as';
@@ -20,14 +20,14 @@ import {
 } from 'types:assemblyscript/src/ast';
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
-import * as prettier from 'prettier';
-import { ABIDataTypes, AbiTypeToStr } from 'opnet';
-import { StrToAbiType } from './StrToAbiType.js';
 import { Logger } from '@btc-vision/logger';
-import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
+import { ABIDataTypes, AbiTypeToStr } from 'opnet';
+import * as prettier from 'prettier';
 import { ClassABI, DeclaredEvent, MethodCollection, ParamDefinition } from './interfaces/Abi.js';
+import { StrToAbiType } from './StrToAbiType.js';
+import { unquote } from './utils/index.js';
 
 // ------------------------------------------------------------------
 // Transform
@@ -92,14 +92,28 @@ export default class OPNetTransform extends Transform {
         // Create an output folder named "abis"
         fs.mkdirSync('abis', { recursive: true });
 
-        // Write one JSON + .d.ts per class
+        // Write one TypeScript ABI + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
-            // JSON
-            const filePath = `abis/${className}.abi.json`;
-            fs.writeFileSync(filePath, JSON.stringify(abiObj, null, 4));
-            logger.success(`ABI generated to ${filePath}`);
+            // TypeScript ABI file
+            const abiTsPath = `abis/${className}.abi.ts`;
+            const abiTsContents = this.buildAbiTsFile(className, abiObj);
+            const formattedAbiTs = await prettier.format(abiTsContents, {
+                parser: 'typescript',
+                printWidth: 120,
+                trailingComma: 'all',
+                tabWidth: 4,
+                semi: true,
+                singleQuote: true,
+                quoteProps: 'as-needed',
+                bracketSpacing: true,
+                bracketSameLine: true,
+                arrowParens: 'always',
+                singleAttributePerLine: true,
+            });
+            fs.writeFileSync(abiTsPath, formattedAbiTs);
+            logger.success(`ABI generated to ${abiTsPath}`);
 
             // DTS
             const dtsPath = `abis/${className}.d.ts`;
@@ -256,6 +270,73 @@ export default class OPNetTransform extends Transform {
         }
 
         return result;
+    }
+
+    // ------------------------------------------------------------
+    //  Generate TypeScript ABI file (using opnet library types)
+    // ------------------------------------------------------------
+    protected buildAbiTsFile(className: string, abiObj: ClassABI): string {
+        const lines: string[] = [];
+
+        // Imports
+        lines.push(`import { OP_NET_ABI, ABIDataTypes, BitcoinAbiTypes, BitcoinInterfaceAbi } from 'opnet';`);
+        lines.push('');
+
+        // Events array
+        const eventsVarName = `${className}Events`;
+        lines.push(`export const ${eventsVarName} = [`);
+
+        for (const evt of abiObj.events) {
+            const valuesStr = evt.values
+                .map((v) => `{ name: '${v.name}', type: ABIDataTypes.${v.type} }`)
+                .join(', ');
+
+            lines.push(`    {`);
+            lines.push(`        name: '${evt.name}',`);
+            lines.push(`        values: [${valuesStr}],`);
+            lines.push(`        type: BitcoinAbiTypes.Event,`);
+            lines.push(`    },`);
+        }
+
+        lines.push(`];`);
+        lines.push('');
+
+        // ABI array
+        const abiVarName = `${className}Abi`;
+        lines.push(`export const ${abiVarName}: BitcoinInterfaceAbi = [`);
+
+        for (const fn of abiObj.functions) {
+            // Build inputs
+            const inputsStr =
+                fn.inputs.length === 0
+                    ? '[]'
+                    : `[${fn.inputs.map((i) => `{ name: '${i.name}', type: ABIDataTypes.${i.type} }`).join(', ')}]`;
+
+            // Build outputs
+            const outputsStr =
+                fn.outputs.length === 0
+                    ? '[]'
+                    : `[${fn.outputs.map((o) => `{ name: '${o.name}', type: ABIDataTypes.${o.type} }`).join(', ')}]`;
+
+            lines.push(`    {`);
+            lines.push(`        name: '${fn.name}',`);
+            lines.push(`        inputs: ${inputsStr},`);
+            lines.push(`        outputs: ${outputsStr},`);
+            lines.push(`        type: BitcoinAbiTypes.Function,`);
+            lines.push(`    },`);
+        }
+
+        // Spread events and OP_NET_ABI
+        lines.push(`    ...${eventsVarName},`);
+        lines.push(`    ...OP_NET_ABI,`);
+        lines.push(`];`);
+        lines.push('');
+
+        // Default export
+        lines.push(`export default ${abiVarName};`);
+        lines.push('');
+
+        return lines.join('\n');
     }
 
     // ------------------------------------------------------------
