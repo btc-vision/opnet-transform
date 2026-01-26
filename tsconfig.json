@@ -31,7 +31,7 @@
     "typeRoots": [
       "node_modules/@types",
       "assemblyscript/transform",
-      "./node_modules/assemblyscript/std/assembly.json",
+      "./node_modules/@btc-vision/assemblyscript/std/assembly.json",
       "./std/assembly",
       "types"
     ],
