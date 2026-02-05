@@ -473,7 +473,7 @@ export type ${typeName} = CallResult<
         lines.push(`export default ${abiVarName};`);
         lines.push('');
 
-        return lines.join('\\n');
+        return lines.join('\n');
     }
 
     // ------------------------------------------------------------
