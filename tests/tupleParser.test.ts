@@ -4,6 +4,8 @@ import {
     isTupleString,
     parseTupleTypes,
     resolveTupleToAbiType,
+    validateTupleInnerTypes,
+    canonicalizeTupleString,
 } from '../transform/utils/tupleParser.js';
 
 describe('isTupleString', () => {
@@ -93,5 +95,65 @@ describe('resolveTupleToAbiType', () => {
 
     it('returns undefined for an unknown non-tuple string', () => {
         expect(resolveTupleToAbiType('unknownType')).toBeUndefined();
+    });
+});
+
+describe('validateTupleInnerTypes', () => {
+    it('returns empty array when all inner types are valid', () => {
+        expect(validateTupleInnerTypes('tuple(address,uint256)[]')).toEqual([]);
+    });
+
+    it('returns empty array for valid types with aliases', () => {
+        expect(validateTupleInnerTypes('tuple(Address,u256)[]')).toEqual([]);
+    });
+
+    it('returns invalid type names', () => {
+        expect(validateTupleInnerTypes('tuple(address,foobar)[]')).toEqual(['foobar']);
+    });
+
+    it('returns multiple invalid types', () => {
+        expect(validateTupleInnerTypes('tuple(foo,bar,uint256)[]')).toEqual(['foo', 'bar']);
+    });
+
+    it('returns the input string for non-tuple strings', () => {
+        expect(validateTupleInnerTypes('notATuple')).toEqual(['notATuple']);
+    });
+
+    it('handles three valid types', () => {
+        expect(validateTupleInnerTypes('tuple(uint256,bool,address)[]')).toEqual([]);
+    });
+});
+
+describe('canonicalizeTupleString', () => {
+    it('canonicalizes aliases to canonical form', () => {
+        expect(canonicalizeTupleString('tuple(Address,u256)[]')).toBe(
+            'tuple(address,uint256)[]',
+        );
+    });
+
+    it('preserves already-canonical types', () => {
+        expect(canonicalizeTupleString('tuple(address,uint256)[]')).toBe(
+            'tuple(address,uint256)[]',
+        );
+    });
+
+    it('canonicalizes three types', () => {
+        expect(canonicalizeTupleString('tuple(u256,bool,Address)[]')).toBe(
+            'tuple(uint256,bool,address)[]',
+        );
+    });
+
+    it('returns undefined for invalid inner types', () => {
+        expect(canonicalizeTupleString('tuple(address,foobar)[]')).toBeUndefined();
+    });
+
+    it('returns undefined for non-tuple strings', () => {
+        expect(canonicalizeTupleString('uint256')).toBeUndefined();
+    });
+
+    it('handles AssemblyScript aliases', () => {
+        expect(canonicalizeTupleString('tuple(u8,i64,u128)[]')).toBe(
+            'tuple(uint8,int64,uint128)[]',
+        );
     });
 });

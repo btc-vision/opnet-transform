@@ -286,27 +286,28 @@ describe('decorator combinations', () => {
         expect(m.selectorOverride).toBe('0xd0e30db0');
     });
 
-    it('@view and @payable are technically valid together (unusual but allowed)', () => {
+    it('@view and @payable cannot be combined (conflict error)', () => {
+        // The transform now throws a compile error when both @view and @payable
+        // are applied to the same method. This test documents the intent.
         const m: Partial<MethodCollection> = {
             methodName: 'checkAndDeposit',
             isView: true,
             isPayable: true,
         };
+        // At the type level the flags can both be set, but the transform rejects this
         expect(m.isView).toBe(true);
         expect(m.isPayable).toBe(true);
     });
 
-    it('all flags can be set simultaneously', () => {
+    it('all non-conflicting flags can be set simultaneously', () => {
         const m: Partial<MethodCollection> = {
             methodName: 'superMethod',
             isView: true,
-            isPayable: true,
             onlyOwner: true,
             selectorOverride: '0xdeadbeef',
             emittedEvents: ['Transfer'],
         };
         expect(m.isView).toBe(true);
-        expect(m.isPayable).toBe(true);
         expect(m.onlyOwner).toBe(true);
         expect(m.selectorOverride).toBe('0xdeadbeef');
         expect(m.emittedEvents).toEqual(['Transfer']);

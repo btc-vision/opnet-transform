@@ -6,6 +6,12 @@ import { MethodDeclaration } from '@btc-vision/assemblyscript/dist/assemblyscrip
 // ------------------------------------------------------------------
 
 /**
+ * Widened ABI type: either a known ABIDataTypes enum value or a custom tuple string
+ * (e.g. "tuple(uint256,bool,address)[]").
+ */
+export type AbiType = ABIDataTypes | `tuple(${string})[]`;
+
+/**
  * A single parameter definition. It can be a bare string (e.g. "uint256")
  * or an object-literal (named parameter).
  */
@@ -43,13 +49,13 @@ export interface ABIFunctionEntry {
     type: 'Function' | 'View';
     payable: boolean;
     onlyOwner: boolean;
-    inputs: { name: string; type: ABIDataTypes }[];
-    outputs: { name: string; type: ABIDataTypes }[];
+    inputs: { name: string; type: AbiType }[];
+    outputs: { name: string; type: AbiType }[];
 }
 
 export interface ABIEventEntry {
     name: string;
-    values: { name: string; type: ABIDataTypes }[];
+    values: { name: string; type: AbiType }[];
     type: 'Event';
 }
 
@@ -60,7 +66,7 @@ export interface ClassABI {
 
 export interface EventField {
     name: string;
-    type: ABIDataTypes;
+    type: AbiType;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { ABIDataTypes } from '@btc-vision/transaction';
-import { StrToAbiType } from '../StrToAbiType.js';
+import { AbiTypeToStr, StrToAbiType } from '../StrToAbiType.js';
 
 const TUPLE_RE = /^tuple\(([^)]+)\)\[\]$/;
 
@@ -26,4 +26,40 @@ export function parseTupleTypes(str: string): string[] {
  */
 export function resolveTupleToAbiType(str: string): ABIDataTypes | undefined {
     return StrToAbiType[str];
+}
+
+/**
+ * Validates that all inner types of a tuple string are known ABI types.
+ * Returns an array of invalid type names (empty array = all valid).
+ *
+ * E.g. `validateTupleInnerTypes("tuple(address,foobar)[]")` → `["foobar"]`
+ */
+export function validateTupleInnerTypes(str: string): string[] {
+    const inner = parseTupleTypes(str);
+    if (inner.length === 0) return [str]; // not a valid tuple string at all
+    return inner.filter((t) => !(t in StrToAbiType));
+}
+
+/**
+ * Converts inner types of a tuple string to their canonical ABI form via
+ * StrToAbiType → AbiTypeToStr round-trip.
+ *
+ * E.g. `"tuple(Address,u256)[]"` → `"tuple(address,uint256)[]"`
+ *
+ * Returns `undefined` if any inner type is not recognized.
+ */
+export function canonicalizeTupleString(str: string): `tuple(${string})[]` | undefined {
+    const inner = parseTupleTypes(str);
+    if (inner.length === 0) return undefined;
+
+    const canonical: string[] = [];
+    for (const t of inner) {
+        const abiType = StrToAbiType[t];
+        if (abiType === undefined) return undefined;
+        const canonicalName = AbiTypeToStr[abiType];
+        if (!canonicalName) return undefined;
+        canonical.push(canonicalName);
+    }
+
+    return `tuple(${canonical.join(',')})[]`;
 }

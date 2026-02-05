@@ -36,7 +36,13 @@ import {
 } from './interfaces/Abi.js';
 import { mapAbiTypeToTypescript } from './utils/typeMappings.js';
 import { isParamDefinition } from './utils/paramValidation.js';
-import { isTupleString, resolveTupleToAbiType } from './utils/tupleParser.js';
+import {
+    canonicalizeTupleString,
+    isTupleString,
+    resolveTupleToAbiType,
+    validateTupleInnerTypes,
+} from './utils/tupleParser.js';
+import { AbiType } from './interfaces/Abi.js';
 
 // ------------------------------------------------------------------
 // Transform
@@ -221,7 +227,7 @@ export default class OPNetTransform extends Transform {
                 });
 
                 // outputs
-                let outputs: { name: string; type: ABIDataTypes }[] = [];
+                let outputs: { name: string; type: AbiType }[] = [];
                 if (m.returnDefs.length > 0) {
                     outputs = m.returnDefs.map((p, idx) => {
                         if (typeof p === 'string') {
@@ -394,6 +400,14 @@ export type ${typeName} = CallResult<
     protected buildAbiTsFile(className: string, abiObj: ClassABI): string {
         const lines: string[] = [];
 
+        const formatTypeRef = (type: AbiType): string => {
+            if (AbiTypeToStr[type as ABIDataTypes] !== undefined) {
+                return `ABIDataTypes.${type}`;
+            }
+            // Custom tuple string — cast through unknown for TS compatibility
+            return `'${type}' as unknown as ABIDataTypes`;
+        };
+
         // Imports
         lines.push(
             `import { ABIDataTypes, BitcoinAbiTypes, BitcoinInterfaceAbi, OP_NET_ABI } from 'opnet';`,
@@ -405,7 +419,7 @@ export type ${typeName} = CallResult<
         lines.push(`export const ${eventsVarName} = [`);
         for (const evt of abiObj.events) {
             const valuesStr = evt.values
-                .map((v) => `{ name: '${v.name}', type: ABIDataTypes.${v.type} }`)
+                .map((v) => `{ name: '${v.name}', type: ${formatTypeRef(v.type)} }`)
                 .join(', ');
             lines.push(`    {`);
             lines.push(`        name: '${evt.name}',`);
@@ -424,13 +438,13 @@ export type ${typeName} = CallResult<
             const inputsStr =
                 fn.inputs.length === 0
                     ? '[]'
-                    : `[${fn.inputs.map((i) => `{ name: '${i.name}', type: ABIDataTypes.${i.type} }`).join(', ')}]`;
+                    : `[${fn.inputs.map((i) => `{ name: '${i.name}', type: ${formatTypeRef(i.type)} }`).join(', ')}]`;
 
             // Build outputs
             const outputsStr =
                 fn.outputs.length === 0
                     ? '[]'
-                    : `[${fn.outputs.map((o) => `{ name: '${o.name}', type: ABIDataTypes.${o.type} }`).join(', ')}]`;
+                    : `[${fn.outputs.map((o) => `{ name: '${o.name}', type: ${formatTypeRef(o.type)} }`).join(', ')}]`;
 
             lines.push(`    {`);
             lines.push(`        name: '${fn.name}',`);
@@ -459,7 +473,7 @@ export type ${typeName} = CallResult<
         lines.push(`export default ${abiVarName};`);
         lines.push('');
 
-        return lines.join('\n');
+        return lines.join('\\n');
     }
 
     // ------------------------------------------------------------
@@ -475,11 +489,15 @@ export type ${typeName} = CallResult<
             const realNames = m.paramDefs.map((param) => {
                 const type = typeof param === 'string' ? param : param.type;
                 const abiType = this.mapToAbiDataType(type);
-                const canonical = AbiTypeToStr[abiType];
+                const canonical = AbiTypeToStr[abiType as ABIDataTypes];
                 if (canonical) {
                     return canonical;
                 }
-                // Fallback: if mapToAbiDataType returned something not in AbiTypeToStr
+                // For custom tuples, abiType IS the canonical string
+                if (isTupleString(abiType as string)) {
+                    return abiType as string;
+                }
+                // Fallback
                 return type;
             });
 
@@ -779,6 +797,14 @@ export type ${typeName} = CallResult<
         }
 
         if (methodInfo) {
+            // @view and @payable are mutually exclusive
+            if (methodInfo.isView && methodInfo.isPayable) {
+                throw new Error(
+                    `Compile error: method "${methodInfo.methodName}" in class "${this.currentClassName}" ` +
+                        `cannot be both @view and @payable. A view method is read-only and cannot accept payment.`,
+                );
+            }
+
             const arr = this.methodsByClass.get(this.currentClassName);
             if (!arr) return;
             const existing = arr.find((m) => m.declaration === node);
@@ -795,6 +821,14 @@ export type ${typeName} = CallResult<
                 if (methodInfo.onlyOwner) existing.onlyOwner = true;
                 if (methodInfo.selectorOverride)
                     existing.selectorOverride = methodInfo.selectorOverride;
+
+                // Check conflict after merge
+                if (existing.isView && existing.isPayable) {
+                    throw new Error(
+                        `Compile error: method "${existing.methodName}" in class "${this.currentClassName}" ` +
+                            `cannot be both @view and @payable. A view method is read-only and cannot accept payment.`,
+                    );
+                }
             } else {
                 arr.push(methodInfo);
             }
@@ -957,7 +991,7 @@ export type ${typeName} = CallResult<
     /**
      * Convert a user-supplied type string into our internal ABIDataTypes enum.
      */
-    private mapToAbiDataType(str: string): ABIDataTypes {
+    private mapToAbiDataType(str: string): AbiType {
         if (str.startsWith('ABIDataTypes.')) {
             const enumName = str.replace('ABIDataTypes.', '');
             return enumName as ABIDataTypes;
@@ -968,16 +1002,31 @@ export type ${typeName} = CallResult<
         }
         // Try tuple resolution for unknown strings
         if (isTupleString(str)) {
+            // First try known tuple types (e.g. ADDRESS_UINT256_TUPLE)
             const resolved = resolveTupleToAbiType(str);
             if (resolved !== undefined) {
                 return resolved;
             }
+            // Custom tuple: validate inner types and canonicalize
+            const invalid = validateTupleInnerTypes(str);
+            if (invalid.length > 0) {
+                logger.error(
+                    `Custom tuple "${str}" contains invalid inner types: ${invalid.join(', ')}`,
+                );
+            }
+            const canonical = canonicalizeTupleString(str);
+            if (canonical) {
+                return canonical;
+            }
             logger.warn(`Unrecognized tuple type: ${str}`);
+            // Return the raw tuple string even if not fully canonicalized
+            return str as `tuple(${string})[]`;
         }
-        return StrToAbiType['unknown'];
+        logger.warn(`Unknown ABI type: "${str}", falling back to STRING`);
+        return ABIDataTypes.STRING;
     }
 
-    private mapAbiTypeToTypescript(abiType: ABIDataTypes): string {
+    private mapAbiTypeToTypescript(abiType: AbiType): string {
         const result = mapAbiTypeToTypescript(abiType);
         if (result === 'unknown') {
             logger.warn(`Unknown or unhandled type definition for ${abiType}`);

@@ -31,7 +31,8 @@ export declare type AllowedAbiTypes =
     | 'bytes[]'
     | 'buffer[]'
     | 'string[]'
-    | 'boolean';
+    | 'boolean'
+    | `tuple(${string})[]`;
 
 export type MethodDecorator = <T>(
     target: Object,

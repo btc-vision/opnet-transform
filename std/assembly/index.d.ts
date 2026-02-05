@@ -131,6 +131,8 @@ declare global {
      * Mark a method as read-only (does not modify state).
      * In the ABI, the function type will be 'View' instead of 'Function'.
      *
+     * **Cannot be combined with @payable.** Using both will cause a compile error.
+     *
      * @example
      * ```
      *   @view
@@ -144,6 +146,8 @@ declare global {
     /**
      * Mark a method as payable (can receive BTC value).
      * Non-payable methods will not have this flag in the ABI.
+     *
+     * **Cannot be combined with @view.** Using both will cause a compile error.
      *
      * @example
      * ```

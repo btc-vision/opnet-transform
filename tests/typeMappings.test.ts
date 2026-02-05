@@ -139,4 +139,28 @@ describe('mapAbiTypeToTypescript', () => {
             expect(mapAbiTypeToTypescript('NONEXISTENT' as ABIDataTypes)).toBe('unknown');
         });
     });
+
+    describe('custom tuple types', () => {
+        it('tuple(uint256,bool)[] -> [bigint, boolean][]', () => {
+            expect(mapAbiTypeToTypescript('tuple(uint256,bool)[]')).toBe('[bigint, boolean][]');
+        });
+
+        it('tuple(address,uint256,bool)[] -> [Address, bigint, boolean][]', () => {
+            expect(mapAbiTypeToTypescript('tuple(address,uint256,bool)[]')).toBe(
+                '[Address, bigint, boolean][]',
+            );
+        });
+
+        it('tuple(uint8,string)[] -> [number, string][]', () => {
+            expect(mapAbiTypeToTypescript('tuple(uint8,string)[]')).toBe('[number, string][]');
+        });
+
+        it('tuple with unknown inner type produces unknown element', () => {
+            expect(mapAbiTypeToTypescript('tuple(address,foobar)[]')).toBe('[Address, unknown][]');
+        });
+
+        it('tuple(uint256,uint256)[] -> [bigint, bigint][]', () => {
+            expect(mapAbiTypeToTypescript('tuple(uint256,uint256)[]')).toBe('[bigint, bigint][]');
+        });
+    });
 });
