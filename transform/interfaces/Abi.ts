@@ -1,4 +1,4 @@
-import { ABIDataTypes } from 'opnet';
+import { ABIDataTypes } from '@btc-vision/transaction';
 import { MethodDeclaration } from '@btc-vision/assemblyscript/dist/assemblyscript.js';
 
 // ------------------------------------------------------------------
