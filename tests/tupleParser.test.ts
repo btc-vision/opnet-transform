@@ -6,6 +6,9 @@ import {
     resolveTupleToAbiType,
     validateTupleInnerTypes,
     canonicalizeTupleString,
+    parseTupleToStructuredArray,
+    isTupleArrayType,
+    structuredArrayToTupleString,
 } from '../transform/utils/tupleParser.js';
 
 describe('isTupleString', () => {
@@ -155,5 +158,83 @@ describe('canonicalizeTupleString', () => {
         expect(canonicalizeTupleString('tuple(u8,i64,u128)[]')).toBe(
             'tuple(uint8,int64,uint128)[]',
         );
+    });
+});
+
+describe('parseTupleToStructuredArray', () => {
+    it('parses tuple(address,uint8)[] to structured array', () => {
+        expect(parseTupleToStructuredArray('tuple(address,uint8)[]')).toEqual([
+            ABIDataTypes.ADDRESS,
+            ABIDataTypes.UINT8,
+        ]);
+    });
+
+    it('parses tuple(uint256,bool,address)[] to structured array', () => {
+        expect(parseTupleToStructuredArray('tuple(uint256,bool,address)[]')).toEqual([
+            ABIDataTypes.UINT256,
+            ABIDataTypes.BOOL,
+            ABIDataTypes.ADDRESS,
+        ]);
+    });
+
+    it('returns undefined for invalid inner types', () => {
+        expect(parseTupleToStructuredArray('tuple(address,foobar)[]')).toBeUndefined();
+    });
+
+    it('returns undefined for non-tuple strings', () => {
+        expect(parseTupleToStructuredArray('uint256')).toBeUndefined();
+    });
+
+    it('handles AssemblyScript aliases via StrToAbiType', () => {
+        expect(parseTupleToStructuredArray('tuple(Address,u256)[]')).toEqual([
+            ABIDataTypes.ADDRESS,
+            ABIDataTypes.UINT256,
+        ]);
+    });
+});
+
+describe('isTupleArrayType', () => {
+    it('returns true for ABIDataTypes array', () => {
+        expect(isTupleArrayType([ABIDataTypes.ADDRESS, ABIDataTypes.UINT8])).toBe(true);
+    });
+
+    it('returns false for a plain ABIDataTypes enum value', () => {
+        expect(isTupleArrayType(ABIDataTypes.ADDRESS)).toBe(false);
+    });
+
+    it('returns false for an object (struct)', () => {
+        expect(isTupleArrayType({ owner: ABIDataTypes.ADDRESS })).toBe(false);
+    });
+
+    it('returns true for empty array', () => {
+        expect(isTupleArrayType([])).toBe(true);
+    });
+});
+
+describe('structuredArrayToTupleString', () => {
+    it('converts [ADDRESS, UINT8] to tuple(address,uint8)[]', () => {
+        expect(
+            structuredArrayToTupleString([ABIDataTypes.ADDRESS, ABIDataTypes.UINT8]),
+        ).toBe('tuple(address,uint8)[]');
+    });
+
+    it('converts [UINT256, BOOL, ADDRESS] to tuple(uint256,bool,address)[]', () => {
+        expect(
+            structuredArrayToTupleString([
+                ABIDataTypes.UINT256,
+                ABIDataTypes.BOOL,
+                ABIDataTypes.ADDRESS,
+            ]),
+        ).toBe('tuple(uint256,bool,address)[]');
+    });
+
+    it('converts single-element array', () => {
+        expect(structuredArrayToTupleString([ABIDataTypes.STRING])).toBe('tuple(string)[]');
+    });
+
+    it('round-trips with parseTupleToStructuredArray', () => {
+        const original = 'tuple(address,uint256,bool)[]';
+        const structured = parseTupleToStructuredArray(original)!;
+        expect(structuredArrayToTupleString(structured)).toBe(original);
     });
 });

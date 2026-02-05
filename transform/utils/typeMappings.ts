@@ -1,14 +1,28 @@
 import { ABIDataTypes } from '@btc-vision/transaction';
-import { AbiType } from '../interfaces/Abi.js';
+import { AbiType, StructType } from '../interfaces/Abi.js';
 import { isTupleString, parseTupleTypes } from './tupleParser.js';
 import { StrToAbiType } from '../StrToAbiType.js';
 
 /**
- * Maps an ABIDataTypes enum value (or custom tuple string) to a TypeScript type string
- * for use in generated .d.ts files.
+ * Maps an ABIDataTypes enum value, structured tuple array, structured object,
+ * or legacy tuple string to a TypeScript type string for use in generated .d.ts files.
  */
 export function mapAbiTypeToTypescript(abiType: AbiType): string {
-    // Handle custom tuple strings like "tuple(uint256,bool,address)[]"
+    // Handle structured tuple arrays: [ABIDataTypes.ADDRESS, ABIDataTypes.UINT8] → [Address, number][]
+    if (Array.isArray(abiType)) {
+        const tsTypes = abiType.map((t) => mapAbiTypeToTypescript(t));
+        return `[${tsTypes.join(', ')}][]`;
+    }
+
+    // Handle structured objects (structs): { owner: ABIDataTypes.ADDRESS } → { owner: Address }
+    if (typeof abiType === 'object' && abiType !== null) {
+        const entries = Object.entries(abiType as StructType)
+            .map(([key, val]) => `${key}: ${mapAbiTypeToTypescript(val)}`)
+            .join('; ');
+        return `{ ${entries} }`;
+    }
+
+    // Handle legacy custom tuple strings like "tuple(uint256,bool,address)[]"
     if (typeof abiType === 'string' && isTupleString(abiType)) {
         const inner = parseTupleTypes(abiType);
         const tsTypes = inner.map((t) => {

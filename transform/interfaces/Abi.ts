@@ -6,10 +6,22 @@ import { MethodDeclaration } from '@btc-vision/assemblyscript/dist/assemblyscrip
 // ------------------------------------------------------------------
 
 /**
- * Widened ABI type: either a known ABIDataTypes enum value or a custom tuple string
- * (e.g. "tuple(uint256,bool,address)[]").
+ * A structured tuple: array of ABIDataTypes representing a custom tuple's element types.
+ * E.g. [ABIDataTypes.ADDRESS, ABIDataTypes.ADDRESS, ABIDataTypes.UINT8]
  */
-export type AbiType = ABIDataTypes | `tuple(${string})[]`;
+export type TupleType = ABIDataTypes[];
+
+/**
+ * A structured object type for future struct support.
+ * E.g. { owner: ABIDataTypes.ADDRESS, amount: ABIDataTypes.UINT256 }
+ */
+export type StructType = Record<string, ABIDataTypes>;
+
+/**
+ * Widened ABI type: a known ABIDataTypes enum value, a structured tuple array,
+ * or a structured object (struct).
+ */
+export type AbiType = ABIDataTypes | TupleType | StructType;
 
 /**
  * A single parameter definition. It can be a bare string (e.g. "uint256")

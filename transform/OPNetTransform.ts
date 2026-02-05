@@ -39,10 +39,13 @@ import { isParamDefinition } from './utils/paramValidation.js';
 import {
     canonicalizeTupleString,
     isTupleString,
+    isTupleArrayType,
+    parseTupleToStructuredArray,
     resolveTupleToAbiType,
+    structuredArrayToTupleString,
     validateTupleInnerTypes,
 } from './utils/tupleParser.js';
-import { AbiType } from './interfaces/Abi.js';
+import { AbiType, StructType } from './interfaces/Abi.js';
 
 // ------------------------------------------------------------------
 // Transform
@@ -352,7 +355,30 @@ export type ${typeName} = CallResult<
 `);
         }
 
-        // 3) The interface
+        // 3) Extract named tuple types from inputs/outputs
+        // Maps "MethodNameParamName" -> inner tuple TS type (without trailing [])
+        const tupleTypeDefs: string[] = [];
+        // Maps param key "fnName:paramName" -> exported type name
+        const tupleTypeNames = new Map<string, string>();
+
+        for (const fn of abiObj.functions) {
+            const allParams = [
+                ...fn.inputs.map((p) => ({ ...p, kind: 'input' as const })),
+                ...fn.outputs.map((p) => ({ ...p, kind: 'output' as const })),
+            ];
+            for (const p of allParams) {
+                if (isTupleArrayType(p.type)) {
+                    const methodPascal = this.toPascalCase(fn.name);
+                    const paramPascal = this.toPascalCase(p.name);
+                    const typeName = `${methodPascal}${paramPascal}`;
+                    const innerTypes = p.type.map((t) => this.mapAbiTypeToTypescript(t));
+                    tupleTypeDefs.push(`export type ${typeName} = [${innerTypes.join(', ')}];`);
+                    tupleTypeNames.set(`${fn.name}:${p.name}`, typeName);
+                }
+            }
+        }
+
+        // 4) The interface
         const interfaceLines: string[] = [
             `export interface ${interfaceName} extends IOP_NETContract {`,
         ];
@@ -361,6 +387,10 @@ export type ${typeName} = CallResult<
             // param list
             const paramList = fn.inputs
                 .map((p) => {
+                    const namedType = tupleTypeNames.get(`${fn.name}:${p.name}`);
+                    if (namedType) {
+                        return `${p.name}: ${namedType}[]`;
+                    }
                     const tsType = this.mapAbiTypeToTypescript(p.type);
                     return `${p.name}: ${tsType}`;
                 })
@@ -372,26 +402,42 @@ export type ${typeName} = CallResult<
         interfaceLines.push('}');
 
         // combine
-        return [
-            `import { Address, AddressMap, ExtendedAddressMap, SchnorrSignature } from '@btc-vision/transaction';`,
-            `import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';`,
-            '',
-            '// ------------------------------------------------------------------',
-            '// Event Definitions',
-            '// ------------------------------------------------------------------',
-            ...eventTypeDefs,
-            '',
-            '// ------------------------------------------------------------------',
-            '// Call Results',
-            '// ------------------------------------------------------------------',
-            ...callResultTypes,
-            '',
+        const sections: string[][] = [
+            [
+                `import { Address, AddressMap, ExtendedAddressMap, SchnorrSignature } from '@btc-vision/transaction';`,
+                `import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';`,
+            ],
+            [
+                '// ------------------------------------------------------------------',
+                '// Event Definitions',
+                '// ------------------------------------------------------------------',
+                ...eventTypeDefs,
+            ],
+            [
+                '// ------------------------------------------------------------------',
+                '// Call Results',
+                '// ------------------------------------------------------------------',
+                ...callResultTypes,
+            ],
+        ];
+
+        if (tupleTypeDefs.length > 0) {
+            sections.push([
+                '// ------------------------------------------------------------------',
+                '// Tuple Types',
+                '// ------------------------------------------------------------------',
+                ...tupleTypeDefs,
+            ]);
+        }
+
+        sections.push([
             '// ------------------------------------------------------------------',
             `// ${interfaceName}`,
             '// ------------------------------------------------------------------',
             ...interfaceLines,
-            '',
-        ].join('\n');
+        ]);
+
+        return sections.map((s) => s.join('\n')).join('\n\n') + '\n';
     }
 
     // ------------------------------------------------------------
@@ -401,16 +447,29 @@ export type ${typeName} = CallResult<
         const lines: string[] = [];
 
         const formatTypeRef = (type: AbiType): string => {
+            // Structured tuple array: [ABIDataTypes.X, ABIDataTypes.Y]
+            if (isTupleArrayType(type)) {
+                const elements = type.map((t) => `ABIDataTypes.${t}`);
+                return `[${elements.join(', ')}]`;
+            }
+            // Structured object (struct): { field: ABIDataTypes.X }
+            if (typeof type === 'object' && !Array.isArray(type)) {
+                const entries = Object.entries(type as StructType)
+                    .map(([key, val]) => `${key}: ABIDataTypes.${val}`)
+                    .join(', ');
+                return `{ ${entries} }`;
+            }
+            // Known ABIDataTypes enum value
             if (AbiTypeToStr[type as ABIDataTypes] !== undefined) {
                 return `ABIDataTypes.${type}`;
             }
-            // Custom tuple string — cast through unknown for TS compatibility
-            return `'${type}' as unknown as ABIDataTypes`;
+            // Fallback
+            return `ABIDataTypes.${type}`;
         };
 
         // Imports
         lines.push(
-            `import { ABIDataTypes, BitcoinAbiTypes, BitcoinInterfaceAbi, OP_NET_ABI } from 'opnet';`,
+            `import { ABIDataTypes, BitcoinAbiTypes, OP_NET_ABI } from 'opnet';`,
         );
         lines.push('');
 
@@ -432,7 +491,7 @@ export type ${typeName} = CallResult<
 
         // ABI array
         const abiVarName = `${className}Abi`;
-        lines.push(`export const ${abiVarName}: BitcoinInterfaceAbi = [`);
+        lines.push(`export const ${abiVarName} = [`);
         for (const fn of abiObj.functions) {
             // Build inputs
             const inputsStr =
@@ -489,13 +548,13 @@ export type ${typeName} = CallResult<
             const realNames = m.paramDefs.map((param) => {
                 const type = typeof param === 'string' ? param : param.type;
                 const abiType = this.mapToAbiDataType(type);
+                // Structured tuple array: convert back to tuple string for selector
+                if (isTupleArrayType(abiType)) {
+                    return structuredArrayToTupleString(abiType);
+                }
                 const canonical = AbiTypeToStr[abiType as ABIDataTypes];
                 if (canonical) {
                     return canonical;
-                }
-                // For custom tuples, abiType IS the canonical string
-                if (isTupleString(abiType as string)) {
-                    return abiType as string;
                 }
                 // Fallback
                 return type;
@@ -1007,7 +1066,7 @@ export type ${typeName} = CallResult<
             if (resolved !== undefined) {
                 return resolved;
             }
-            // Custom tuple: validate inner types and canonicalize
+            // Custom tuple: validate inner types and return structured array
             const invalid = validateTupleInnerTypes(str);
             if (invalid.length > 0) {
                 logger.error(
@@ -1016,11 +1075,18 @@ export type ${typeName} = CallResult<
             }
             const canonical = canonicalizeTupleString(str);
             if (canonical) {
-                return canonical;
+                const structured = parseTupleToStructuredArray(canonical);
+                if (structured) {
+                    return structured;
+                }
+            }
+            // Fallback: try to parse raw string into structured array
+            const structured = parseTupleToStructuredArray(str);
+            if (structured) {
+                return structured;
             }
             logger.warn(`Unrecognized tuple type: ${str}`);
-            // Return the raw tuple string even if not fully canonicalized
-            return str as `tuple(${string})[]`;
+            return ABIDataTypes.STRING;
         }
         logger.warn(`Unknown ABI type: "${str}", falling back to STRING`);
         return ABIDataTypes.STRING;
@@ -1029,7 +1095,7 @@ export type ${typeName} = CallResult<
     private mapAbiTypeToTypescript(abiType: AbiType): string {
         const result = mapAbiTypeToTypescript(abiType);
         if (result === 'unknown') {
-            logger.warn(`Unknown or unhandled type definition for ${abiType}`);
+            logger.warn(`Unknown or unhandled type definition for ${JSON.stringify(abiType)}`);
         }
         return result;
     }

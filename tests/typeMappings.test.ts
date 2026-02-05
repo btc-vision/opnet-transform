@@ -140,7 +140,7 @@ describe('mapAbiTypeToTypescript', () => {
         });
     });
 
-    describe('custom tuple types', () => {
+    describe('custom tuple types (legacy string form)', () => {
         it('tuple(uint256,bool)[] -> [bigint, boolean][]', () => {
             expect(mapAbiTypeToTypescript('tuple(uint256,bool)[]')).toBe('[bigint, boolean][]');
         });
@@ -161,6 +161,55 @@ describe('mapAbiTypeToTypescript', () => {
 
         it('tuple(uint256,uint256)[] -> [bigint, bigint][]', () => {
             expect(mapAbiTypeToTypescript('tuple(uint256,uint256)[]')).toBe('[bigint, bigint][]');
+        });
+    });
+
+    describe('structured tuple arrays (ABIDataTypes[])', () => {
+        it('[ADDRESS, UINT8] -> [Address, number][]', () => {
+            expect(
+                mapAbiTypeToTypescript([ABIDataTypes.ADDRESS, ABIDataTypes.UINT8]),
+            ).toBe('[Address, number][]');
+        });
+
+        it('[UINT256, BOOL, ADDRESS] -> [bigint, boolean, Address][]', () => {
+            expect(
+                mapAbiTypeToTypescript([
+                    ABIDataTypes.UINT256,
+                    ABIDataTypes.BOOL,
+                    ABIDataTypes.ADDRESS,
+                ]),
+            ).toBe('[bigint, boolean, Address][]');
+        });
+
+        it('[STRING] -> [string][]', () => {
+            expect(mapAbiTypeToTypescript([ABIDataTypes.STRING])).toBe('[string][]');
+        });
+
+        it('[ADDRESS, ADDRESS, UINT256] -> [Address, Address, bigint][]', () => {
+            expect(
+                mapAbiTypeToTypescript([
+                    ABIDataTypes.ADDRESS,
+                    ABIDataTypes.ADDRESS,
+                    ABIDataTypes.UINT256,
+                ]),
+            ).toBe('[Address, Address, bigint][]');
+        });
+    });
+
+    describe('structured objects (StructType)', () => {
+        it('{ owner: ADDRESS } -> { owner: Address }', () => {
+            expect(
+                mapAbiTypeToTypescript({ owner: ABIDataTypes.ADDRESS }),
+            ).toBe('{ owner: Address }');
+        });
+
+        it('{ owner: ADDRESS; amount: UINT256 } -> { owner: Address; amount: bigint }', () => {
+            expect(
+                mapAbiTypeToTypescript({
+                    owner: ABIDataTypes.ADDRESS,
+                    amount: ABIDataTypes.UINT256,
+                }),
+            ).toBe('{ owner: Address; amount: bigint }');
         });
     });
 });

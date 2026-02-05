@@ -1,5 +1,6 @@
 import { ABIDataTypes } from '@btc-vision/transaction';
 import { AbiTypeToStr, StrToAbiType } from '../StrToAbiType.js';
+import { AbiType, TupleType } from '../interfaces/Abi.js';
 
 const TUPLE_RE = /^tuple\(([^)]+)\)\[\]$/;
 
@@ -62,4 +63,41 @@ export function canonicalizeTupleString(str: string): `tuple(${string})[]` | und
     }
 
     return `tuple(${canonical.join(',')})[]`;
+}
+
+/**
+ * Parses a tuple string like "tuple(address,uint8)[]" into a structured ABIDataTypes array.
+ * Returns undefined if any inner type cannot be resolved.
+ *
+ * E.g. "tuple(address,uint8)[]" → [ABIDataTypes.ADDRESS, ABIDataTypes.UINT8]
+ */
+export function parseTupleToStructuredArray(str: string): ABIDataTypes[] | undefined {
+    const inner = parseTupleTypes(str);
+    if (inner.length === 0) return undefined;
+
+    const result: ABIDataTypes[] = [];
+    for (const t of inner) {
+        const abiType = StrToAbiType[t];
+        if (abiType === undefined) return undefined;
+        result.push(abiType);
+    }
+    return result;
+}
+
+/**
+ * Type guard: returns true if the AbiType value is a structured tuple array (ABIDataTypes[]).
+ */
+export function isTupleArrayType(type: AbiType): type is TupleType {
+    return Array.isArray(type);
+}
+
+/**
+ * Converts a structured ABIDataTypes array back to a canonical tuple string
+ * for use in selector computation.
+ *
+ * E.g. [ABIDataTypes.ADDRESS, ABIDataTypes.UINT8] → "tuple(address,uint8)[]"
+ */
+export function structuredArrayToTupleString(arr: ABIDataTypes[]): `tuple(${string})[]` {
+    const names = arr.map((t) => AbiTypeToStr[t]);
+    return `tuple(${names.join(',')})[]`;
 }
