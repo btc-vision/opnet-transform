@@ -1,5 +1,9 @@
-import OPNetTransform, { SimpleParser, logger, isAssemblyScriptStdLib } from './OPNetTransform.js';
-import { Parser, NodeKind, MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
+import OPNetTransform, { isAssemblyScriptStdLib, logger, SimpleParser } from './OPNetTransform.js';
+import {
+    MethodDeclaration,
+    NodeKind,
+    Parser,
+} from '@btc-vision/assemblyscript/dist/assemblyscript.js';
 import parserTypeScript from 'prettier/parser-typescript';
 import prettier from 'prettier/standalone';
 import prettierPluginEstree from 'prettier/plugins/estree';

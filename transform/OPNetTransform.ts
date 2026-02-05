@@ -1,4 +1,4 @@
-import { Transform } from 'assemblyscript/transform';
+import { Transform } from '@btc-vision/assemblyscript/transform';
 import {
     ClassDeclaration,
     FieldDeclaration,
@@ -7,8 +7,8 @@ import {
     Parser,
     Program,
     Statement,
-} from 'assemblyscript/dist/assemblyscript.js';
-import { fs } from 'assemblyscript/util/node.js';
+} from '@btc-vision/assemblyscript/dist/assemblyscript.js';
+import { fs } from '@btc-vision/assemblyscript/util/node.js';
 // @ts-ignore
 import { SimpleParser } from '@btc-vision/visitor-as';
 import {

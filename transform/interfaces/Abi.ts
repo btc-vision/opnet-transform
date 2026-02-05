@@ -1,5 +1,5 @@
 import { ABIDataTypes } from 'opnet';
-import { MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
+import { MethodDeclaration } from '@btc-vision/assemblyscript/dist/assemblyscript.js';
 
 // ------------------------------------------------------------------
 // Types
