@@ -126,6 +126,63 @@ declare global {
      * ```
      */
     function emit(...events: string[]): MethodDecorator;
+
+    /**
+     * Mark a method as read-only (does not modify state).
+     * In the ABI, the function type will be 'View' instead of 'Function'.
+     *
+     * @example
+     * ```
+     *   @view
+     *   @method("balanceOf", "address")
+     *   @returns("uint256")
+     *   getBalance(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function view(): MethodDecorator;
+
+    /**
+     * Mark a method as payable (can receive BTC value).
+     * Non-payable methods will not have this flag in the ABI.
+     *
+     * @example
+     * ```
+     *   @payable
+     *   @method("deposit")
+     *   deposit(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function payable(): MethodDecorator;
+
+    /**
+     * Restrict a method to the contract owner.
+     * The transform injects a `this.onlyOwner(calldata)` guard
+     * before the method call in the execute router.
+     *
+     * @example
+     * ```
+     *   @onlyOwner
+     *   @method("setAdmin", "address")
+     *   setAdmin(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function onlyOwner(): MethodDecorator;
+
+    /**
+     * Override the auto-computed 4-byte selector for a method.
+     * Useful for interface compatibility with existing standards.
+     *
+     * @param {string} selectorHex - The 4-byte selector as a hex string (e.g. "0xaabbccdd").
+     *
+     * @example
+     * ```
+     *   @selector("0xa9059cbb")
+     *   @method("transfer", "address", "uint256")
+     *   transfer(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function selector(selectorHex: string): MethodDecorator;
+
 }
 
 export {};

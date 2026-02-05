@@ -28,7 +28,12 @@ import { Logger } from '@btc-vision/logger';
 import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
-import { ClassABI, DeclaredEvent, MethodCollection, ParamDefinition } from './interfaces/Abi.js';
+import {
+    ClassABI,
+    DeclaredEvent,
+    MethodCollection,
+    ParamDefinition,
+} from './interfaces/Abi.js';
 import { mapAbiTypeToTypescript } from './utils/typeMappings.js';
 import { isParamDefinition } from './utils/paramValidation.js';
 import { isTupleString, resolveTupleToAbiType } from './utils/tupleParser.js';
@@ -226,7 +231,9 @@ export default class OPNetTransform extends Transform {
 
                 return {
                     name: m.methodName,
-                    type: 'Function' as const,
+                    type: (m.isView ? 'View' : 'Function') as 'Function' | 'View',
+                    payable: m.isPayable ?? false,
+                    onlyOwner: m.onlyOwner ?? false,
                     inputs,
                     outputs,
                 };
@@ -396,17 +403,30 @@ export type ${typeName} = CallResult<
             const sig = `${m.methodName}(${realNames.join(',')})`;
             m.signature = sig;
 
-            // 4-byte selector
-            const selectorHex = abiCoder.encodeSelector(sig);
-            const selectorNum = `0x${selectorHex}`;
+            // 4-byte selector: use override if provided, otherwise compute
+            let selectorNum: string;
+            if (m.selectorOverride) {
+                selectorNum = m.selectorOverride;
+                logger.debugBright(
+                    `Found function ${sig} -> ${selectorNum} [override] (${m.declaration.name.text})`,
+                );
+            } else {
+                const selectorHex = abiCoder.encodeSelector(sig);
+                selectorNum = `0x${selectorHex}`;
+                logger.debugBright(
+                    `Found function ${sig} -> ${selectorNum} (${m.declaration.name.text})`,
+                );
+            }
 
-            logger.debugBright(
-                `Found function ${sig} -> ${selectorNum} (${m.declaration.name.text})`,
-            );
-
-            bodyLines.push(
-                `if (selector == ${selectorNum}) return this.${m.declaration.name.text}(calldata);`,
-            );
+            // Build the body for this selector branch
+            const callLine = `return this.${m.declaration.name.text}(calldata);`;
+            if (m.onlyOwner) {
+                bodyLines.push(
+                    `if (selector == ${selectorNum}) { this.onlyOwner(calldata); ${callLine} }`,
+                );
+            } else {
+                bodyLines.push(`if (selector == ${selectorNum}) ${callLine}`);
+            }
         }
 
         bodyLines.push('return super.execute(selector, calldata);');
@@ -626,6 +646,52 @@ export type ${typeName} = CallResult<
                 }
 
                 methodInfo.emittedEvents.push(...rawArgs);
+            } else if (decName === 'view') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.isView = true;
+            } else if (decName === 'payable') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.isPayable = true;
+            } else if (decName === 'onlyOwner') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.onlyOwner = true;
+            } else if (decName === 'selector') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                if (dec.args && dec.args.length > 0) {
+                    methodInfo.selectorOverride = unquote(dec.args[0].range.toString());
+                }
             }
         }
 
@@ -641,6 +707,11 @@ export type ${typeName} = CallResult<
                 existing.emittedEvents = [
                     ...new Set([...existing.emittedEvents, ...methodInfo.emittedEvents]),
                 ];
+                if (methodInfo.isView) existing.isView = true;
+                if (methodInfo.isPayable) existing.isPayable = true;
+                if (methodInfo.onlyOwner) existing.onlyOwner = true;
+                if (methodInfo.selectorOverride)
+                    existing.selectorOverride = methodInfo.selectorOverride;
             } else {
                 arr.push(methodInfo);
             }
