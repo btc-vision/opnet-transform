@@ -47,35 +47,41 @@ export default class OpnetWebTransform extends OPNetTransform {
         // Build ABI per class
         const abiMap = this.buildAbiPerClass();
 
-        // 4) Write one JSON + .d.ts per class
+        const prettierOptions = {
+            plugins: [parserTypeScript, prettierPluginEstree],
+            parser: 'typescript' as const,
+            printWidth: 120,
+            trailingComma: 'all' as const,
+            tabWidth: 4,
+            semi: true,
+            singleQuote: true,
+            quoteProps: 'as-needed' as const,
+            bracketSpacing: true,
+            bracketSameLine: true,
+            arrowParens: 'always' as const,
+            singleAttributePerLine: true,
+        };
+
+        // 4) Write one JSON + TS + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
             // JSON
             const filePath = `abis/${className}.abi.json`;
-
             this.writeFile(filePath, JSON.stringify(abiObj, null, 4), '.');
-
             logger.success(`ABI generated to ${filePath}`);
+
+            // TypeScript ABI file
+            const abiTsPath = `abis/${className}.abi.ts`;
+            const abiTsContents = this.buildAbiTsFile(className, abiObj);
+            const formattedAbiTs = await prettier.format(abiTsContents, prettierOptions);
+            this.writeFile(abiTsPath, formattedAbiTs, '.');
+            logger.success(`ABI generated to ${abiTsPath}`);
 
             // DTS
             const dtsPath = `abis/${className}.d.ts`;
             const dtsContents = this.buildDtsForClass(className, abiObj);
-            const formattedDts = await prettier.format(dtsContents, {
-                plugins: [parserTypeScript, prettierPluginEstree],
-                parser: 'typescript',
-                printWidth: 100,
-                trailingComma: 'all',
-                tabWidth: 4,
-                semi: true,
-                singleQuote: true,
-                quoteProps: 'as-needed',
-                bracketSpacing: true,
-                bracketSameLine: true,
-                arrowParens: 'always',
-                singleAttributePerLine: true,
-            });
-
+            const formattedDts = await prettier.format(dtsContents, prettierOptions);
             this.writeFile(dtsPath, formattedDts, '.');
             logger.success(`Type definitions generated to ${dtsPath}`);
         }

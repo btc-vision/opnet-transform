@@ -101,7 +101,21 @@ export default class OPNetTransform extends Transform {
         // Create an output folder named "abis"
         fs.mkdirSync('abis', { recursive: true });
 
-        // Write one JSON + .d.ts per class
+        const prettierOptions = {
+            parser: 'typescript' as const,
+            printWidth: 120,
+            trailingComma: 'all' as const,
+            tabWidth: 4,
+            semi: true,
+            singleQuote: true,
+            quoteProps: 'as-needed' as const,
+            bracketSpacing: true,
+            bracketSameLine: true,
+            arrowParens: 'always' as const,
+            singleAttributePerLine: true,
+        };
+
+        // Write one JSON + TS + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
@@ -110,22 +124,17 @@ export default class OPNetTransform extends Transform {
             fs.writeFileSync(filePath, JSON.stringify(abiObj, null, 4));
             logger.success(`ABI generated to ${filePath}`);
 
+            // TypeScript ABI file
+            const abiTsPath = `abis/${className}.abi.ts`;
+            const abiTsContents = this.buildAbiTsFile(className, abiObj);
+            const formattedAbiTs = await prettier.format(abiTsContents, prettierOptions);
+            fs.writeFileSync(abiTsPath, formattedAbiTs);
+            logger.success(`ABI generated to ${abiTsPath}`);
+
             // DTS
             const dtsPath = `abis/${className}.d.ts`;
             const dtsContents = this.buildDtsForClass(className, abiObj);
-            const formattedDts = await prettier.format(dtsContents, {
-                parser: 'typescript',
-                printWidth: 100,
-                trailingComma: 'all',
-                tabWidth: 4,
-                semi: true,
-                singleQuote: true,
-                quoteProps: 'as-needed',
-                bracketSpacing: true,
-                bracketSameLine: true,
-                arrowParens: 'always',
-                singleAttributePerLine: true,
-            });
+            const formattedDts = await prettier.format(dtsContents, prettierOptions);
 
             fs.writeFileSync(dtsPath, formattedDts);
             logger.success(`Type definitions generated to ${dtsPath}`);
@@ -377,6 +386,80 @@ export type ${typeName} = CallResult<
             ...interfaceLines,
             '',
         ].join('\n');
+    }
+
+    // ------------------------------------------------------------
+    //  Generate TypeScript ABI file (using opnet library types)
+    // ------------------------------------------------------------
+    protected buildAbiTsFile(className: string, abiObj: ClassABI): string {
+        const lines: string[] = [];
+
+        // Imports
+        lines.push(
+            `import { ABIDataTypes, BitcoinAbiTypes, BitcoinInterfaceAbi, OP_NET_ABI } from 'opnet';`,
+        );
+        lines.push('');
+
+        // Events array
+        const eventsVarName = `${className}Events`;
+        lines.push(`export const ${eventsVarName} = [`);
+        for (const evt of abiObj.events) {
+            const valuesStr = evt.values
+                .map((v) => `{ name: '${v.name}', type: ABIDataTypes.${v.type} }`)
+                .join(', ');
+            lines.push(`    {`);
+            lines.push(`        name: '${evt.name}',`);
+            lines.push(`        values: [${valuesStr}],`);
+            lines.push(`        type: BitcoinAbiTypes.Event,`);
+            lines.push(`    },`);
+        }
+        lines.push(`];`);
+        lines.push('');
+
+        // ABI array
+        const abiVarName = `${className}Abi`;
+        lines.push(`export const ${abiVarName}: BitcoinInterfaceAbi = [`);
+        for (const fn of abiObj.functions) {
+            // Build inputs
+            const inputsStr =
+                fn.inputs.length === 0
+                    ? '[]'
+                    : `[${fn.inputs.map((i) => `{ name: '${i.name}', type: ABIDataTypes.${i.type} }`).join(', ')}]`;
+
+            // Build outputs
+            const outputsStr =
+                fn.outputs.length === 0
+                    ? '[]'
+                    : `[${fn.outputs.map((o) => `{ name: '${o.name}', type: ABIDataTypes.${o.type} }`).join(', ')}]`;
+
+            lines.push(`    {`);
+            lines.push(`        name: '${fn.name}',`);
+
+            // Map view/payable to opnet's FunctionBaseData format
+            if (fn.type === 'View') {
+                lines.push(`        constant: true,`);
+            }
+            if (fn.payable) {
+                lines.push(`        payable: true,`);
+            }
+
+            lines.push(`        inputs: ${inputsStr},`);
+            lines.push(`        outputs: ${outputsStr},`);
+            lines.push(`        type: BitcoinAbiTypes.Function,`);
+            lines.push(`    },`);
+        }
+
+        // Spread events and OP_NET_ABI
+        lines.push(`    ...${eventsVarName},`);
+        lines.push(`    ...OP_NET_ABI,`);
+        lines.push(`];`);
+        lines.push('');
+
+        // Default export
+        lines.push(`export default ${abiVarName};`);
+        lines.push('');
+
+        return lines.join('\n');
     }
 
     // ------------------------------------------------------------
