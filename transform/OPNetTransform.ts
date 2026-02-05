@@ -29,6 +29,9 @@ import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
 import { ClassABI, DeclaredEvent, MethodCollection, ParamDefinition } from './interfaces/Abi.js';
+import { mapAbiTypeToTypescript } from './utils/typeMappings.js';
+import { isParamDefinition } from './utils/paramValidation.js';
+import { isTupleString, resolveTupleToAbiType } from './utils/tupleParser.js';
 
 // ------------------------------------------------------------------
 // Transform
@@ -376,26 +379,17 @@ export type ${typeName} = CallResult<
         const bodyLines: string[] = [];
 
         for (const m of methods) {
-            // Build the method signature from paramDefs
+            // Build the method signature from paramDefs.
+            // Normalize ALL params through mapToAbiDataType -> AbiTypeToStr
+            // so aliases like "AddressMap<u256>" become "tuple(address,uint256)[]".
             const realNames = m.paramDefs.map((param) => {
-                if (typeof param === 'string') {
-                    return param;
+                const type = typeof param === 'string' ? param : param.type;
+                const abiType = this.mapToAbiDataType(type);
+                const canonical = AbiTypeToStr[abiType];
+                if (canonical) {
+                    return canonical;
                 }
-
-                const type = param.type;
-                if (type.startsWith('ABIDataTypes.')) {
-                    const enumType = type.replace('ABIDataTypes.', '');
-                    const enumValue = ABIDataTypes[enumType as keyof typeof ABIDataTypes];
-
-                    if (!enumValue) {
-                        throw new Error(`Invalid abi type (from string): ${enumType}`);
-                    }
-                    const selectorValue = AbiTypeToStr[enumValue];
-                    if (!selectorValue) {
-                        throw new Error(`Invalid abi type (to string): ${enumValue}`);
-                    }
-                    return selectorValue;
-                }
+                // Fallback: if mapToAbiDataType returned something not in AbiTypeToStr
                 return type;
             });
 
@@ -803,12 +797,7 @@ export type ${typeName} = CallResult<
     }
 
     private isParamDefinition(param: ParamDefinition): boolean {
-        if (typeof param === 'string') {
-            return param in StrToAbiType || param.startsWith('ABIDataTypes.');
-        } else {
-            if (param.type.startsWith('ABIDataTypes.')) return true;
-            return param.type in StrToAbiType;
-        }
+        return isParamDefinition(param);
     }
 
     /**
@@ -819,65 +808,27 @@ export type ${typeName} = CallResult<
             const enumName = str.replace('ABIDataTypes.', '');
             return enumName as ABIDataTypes;
         }
-        // else check our known mapping
-        return StrToAbiType[str] || StrToAbiType['unknown'];
+        // Check our known mapping
+        if (str in StrToAbiType) {
+            return StrToAbiType[str];
+        }
+        // Try tuple resolution for unknown strings
+        if (isTupleString(str)) {
+            const resolved = resolveTupleToAbiType(str);
+            if (resolved !== undefined) {
+                return resolved;
+            }
+            logger.warn(`Unrecognized tuple type: ${str}`);
+        }
+        return StrToAbiType['unknown'];
     }
 
     private mapAbiTypeToTypescript(abiType: ABIDataTypes): string {
-        switch (abiType) {
-            case ABIDataTypes.ADDRESS:
-                return 'Address';
-            case ABIDataTypes.EXTENDED_ADDRESS:
-                return 'Address';
-            case ABIDataTypes.STRING:
-                return 'string';
-            case ABIDataTypes.BOOL:
-                return 'boolean';
-            case ABIDataTypes.BYTES:
-                return 'Uint8Array';
-            case ABIDataTypes.UINT8:
-            case ABIDataTypes.UINT16:
-            case ABIDataTypes.UINT32:
-            case ABIDataTypes.INT8:
-            case ABIDataTypes.INT16:
-            case ABIDataTypes.INT32:
-                return 'number';
-            case ABIDataTypes.UINT64:
-            case ABIDataTypes.INT64:
-            case ABIDataTypes.INT128:
-            case ABIDataTypes.UINT128:
-            case ABIDataTypes.UINT256:
-                return 'bigint';
-            case ABIDataTypes.ADDRESS_UINT256_TUPLE:
-                return 'AddressMap<bigint>';
-            case ABIDataTypes.EXTENDED_ADDRESS_UINT256_TUPLE:
-                return 'ExtendedAddressMap<bigint>';
-            case ABIDataTypes.SCHNORR_SIGNATURE:
-                return 'SchnorrSignature';
-            case ABIDataTypes.ARRAY_OF_ADDRESSES:
-                return 'Address[]';
-            case ABIDataTypes.ARRAY_OF_EXTENDED_ADDRESSES:
-                return 'Address[]';
-            case ABIDataTypes.ARRAY_OF_STRING:
-                return 'string[]';
-            case ABIDataTypes.ARRAY_OF_BYTES:
-            case ABIDataTypes.ARRAY_OF_BUFFERS:
-                return 'Uint8Array[]';
-            case ABIDataTypes.ARRAY_OF_UINT8:
-            case ABIDataTypes.ARRAY_OF_UINT16:
-            case ABIDataTypes.ARRAY_OF_UINT32:
-                return 'number[]';
-            case ABIDataTypes.ARRAY_OF_UINT64:
-            case ABIDataTypes.ARRAY_OF_UINT128:
-            case ABIDataTypes.ARRAY_OF_UINT256:
-                return 'bigint[]';
-            case ABIDataTypes.BYTES4:
-            case ABIDataTypes.BYTES32:
-                return 'Uint8Array';
-            default:
-                logger.warn(`Unknown or unhandled type definition for ${abiType}`);
-                return 'unknown';
+        const result = mapAbiTypeToTypescript(abiType);
+        if (result === 'unknown') {
+            logger.warn(`Unknown or unhandled type definition for ${abiType}`);
         }
+        return result;
     }
 
     private toPascalCase(str: string): string {

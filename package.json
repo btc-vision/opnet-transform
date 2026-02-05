@@ -7,12 +7,14 @@
     "types": "std/assembly/index.d.ts",
     "typings": "std/assembly/index.d.ts",
     "scripts": {
-        "build": "gulp"
+        "build": "gulp",
+        "test": "vitest run"
     },
     "author": "OPNet Labs",
     "license": "MIT",
     "devDependencies": {
-        "@types/node": "^25.2.0"
+        "@types/node": "^25.2.0",
+        "vitest": "^4.0.18"
     },
     "keywords": [
         "bitcoin",
