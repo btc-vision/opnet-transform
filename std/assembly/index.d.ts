@@ -11,21 +11,40 @@ import { AllowedAbiTypes, MethodDecorator } from '../types/assembly/AbiTypeStr';
 
 declare global {
     export enum ABIDataTypes {
+        // Unsigned integers
         UINT8 = 'UINT8',
         UINT16 = 'UINT16',
         UINT32 = 'UINT32',
         UINT64 = 'UINT64',
         UINT128 = 'UINT128',
         UINT256 = 'UINT256',
+
+        // Signed integers
+        INT8 = 'INT8',
+        INT16 = 'INT16',
+        INT32 = 'INT32',
+        INT64 = 'INT64',
         INT128 = 'INT128',
+
+        // Basic types
         BOOL = 'BOOL',
         ADDRESS = 'ADDRESS',
+        EXTENDED_ADDRESS = 'EXTENDED_ADDRESS',
         STRING = 'STRING',
         BYTES4 = 'BYTES4',
         BYTES32 = 'BYTES32',
         BYTES = 'BYTES',
+
+        // Tuples/Maps
         ADDRESS_UINT256_TUPLE = 'ADDRESS_UINT256_TUPLE',
+        EXTENDED_ADDRESS_UINT256_TUPLE = 'EXTENDED_ADDRESS_UINT256_TUPLE',
+
+        // Signatures
+        SCHNORR_SIGNATURE = 'SCHNORR_SIGNATURE',
+
+        // Arrays
         ARRAY_OF_ADDRESSES = 'ARRAY_OF_ADDRESSES',
+        ARRAY_OF_EXTENDED_ADDRESSES = 'ARRAY_OF_EXTENDED_ADDRESSES',
         ARRAY_OF_UINT256 = 'ARRAY_OF_UINT256',
         ARRAY_OF_UINT128 = 'ARRAY_OF_UINT128',
         ARRAY_OF_UINT64 = 'ARRAY_OF_UINT64',
@@ -34,6 +53,7 @@ declare global {
         ARRAY_OF_UINT8 = 'ARRAY_OF_UINT8',
         ARRAY_OF_STRING = 'ARRAY_OF_STRING',
         ARRAY_OF_BYTES = 'ARRAY_OF_BYTES',
+        ARRAY_OF_BUFFERS = 'ARRAY_OF_BUFFERS',
     }
 
     /**
@@ -106,6 +126,63 @@ declare global {
      * ```
      */
     function emit(...events: string[]): MethodDecorator;
+
+    /**
+     * Mark a method as read-only (does not modify state).
+     * In the ABI, the function type will be 'View' instead of 'Function'.
+     *
+     * @example
+     * ```
+     *   @view
+     *   @method("balanceOf", "address")
+     *   @returns("uint256")
+     *   getBalance(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function view(): MethodDecorator;
+
+    /**
+     * Mark a method as payable (can receive BTC value).
+     * Non-payable methods will not have this flag in the ABI.
+     *
+     * @example
+     * ```
+     *   @payable
+     *   @method("deposit")
+     *   deposit(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function payable(): MethodDecorator;
+
+    /**
+     * Restrict a method to the contract owner.
+     * The transform injects a `this.onlyOwner(calldata)` guard
+     * before the method call in the execute router.
+     *
+     * @example
+     * ```
+     *   @onlyOwner
+     *   @method("setAdmin", "address")
+     *   setAdmin(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function onlyOwner(): MethodDecorator;
+
+    /**
+     * Override the auto-computed 4-byte selector for a method.
+     * Useful for interface compatibility with existing standards.
+     *
+     * @param {string} selectorHex - The 4-byte selector as a hex string (e.g. "0xaabbccdd").
+     *
+     * @example
+     * ```
+     *   @selector("0xa9059cbb")
+     *   @method("transfer", "address", "uint256")
+     *   transfer(calldata: Calldata): BytesWriter { ... }
+     * ```
+     */
+    function selector(selectorHex: string): MethodDecorator;
+
 }
 
 export {};

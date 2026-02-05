@@ -1,4 +1,4 @@
-import { Transform } from 'assemblyscript/transform';
+import { Transform } from '@btc-vision/assemblyscript/transform';
 import {
     ClassDeclaration,
     FieldDeclaration,
@@ -7,8 +7,8 @@ import {
     Parser,
     Program,
     Statement,
-} from 'assemblyscript/dist/assemblyscript.js';
-import { fs } from 'assemblyscript/util/node.js';
+} from '@btc-vision/assemblyscript/dist/assemblyscript.js';
+import { fs } from '@btc-vision/assemblyscript/util/node.js';
 // @ts-ignore
 import { SimpleParser } from '@btc-vision/visitor-as';
 import {
@@ -21,13 +21,22 @@ import {
 import { ElementKind, FunctionPrototype } from 'types:assemblyscript/src/program';
 
 import * as prettier from 'prettier';
-import { ABIDataTypes, AbiTypeToStr } from 'opnet';
+import { ABIDataTypes } from '@btc-vision/transaction';
+import { AbiTypeToStr } from './StrToAbiType.js';
 import { StrToAbiType } from './StrToAbiType.js';
 import { Logger } from '@btc-vision/logger';
 import { unquote } from './utils/index.js';
 import { ABICoder } from '@btc-vision/transaction';
 import { jsonrepair } from 'jsonrepair';
-import { ClassABI, DeclaredEvent, MethodCollection, ParamDefinition } from './interfaces/Abi.js';
+import {
+    ClassABI,
+    DeclaredEvent,
+    MethodCollection,
+    ParamDefinition,
+} from './interfaces/Abi.js';
+import { mapAbiTypeToTypescript } from './utils/typeMappings.js';
+import { isParamDefinition } from './utils/paramValidation.js';
+import { isTupleString, resolveTupleToAbiType } from './utils/tupleParser.js';
 
 // ------------------------------------------------------------------
 // Transform
@@ -92,7 +101,21 @@ export default class OPNetTransform extends Transform {
         // Create an output folder named "abis"
         fs.mkdirSync('abis', { recursive: true });
 
-        // Write one JSON + .d.ts per class
+        const prettierOptions = {
+            parser: 'typescript' as const,
+            printWidth: 120,
+            trailingComma: 'all' as const,
+            tabWidth: 4,
+            semi: true,
+            singleQuote: true,
+            quoteProps: 'as-needed' as const,
+            bracketSpacing: true,
+            bracketSameLine: true,
+            arrowParens: 'always' as const,
+            singleAttributePerLine: true,
+        };
+
+        // Write one JSON + TS + .d.ts per class
         for (const [className, abiObj] of abiMap.entries()) {
             if (abiObj.functions.length === 0) continue;
 
@@ -101,22 +124,17 @@ export default class OPNetTransform extends Transform {
             fs.writeFileSync(filePath, JSON.stringify(abiObj, null, 4));
             logger.success(`ABI generated to ${filePath}`);
 
+            // TypeScript ABI file
+            const abiTsPath = `abis/${className}.abi.ts`;
+            const abiTsContents = this.buildAbiTsFile(className, abiObj);
+            const formattedAbiTs = await prettier.format(abiTsContents, prettierOptions);
+            fs.writeFileSync(abiTsPath, formattedAbiTs);
+            logger.success(`ABI generated to ${abiTsPath}`);
+
             // DTS
             const dtsPath = `abis/${className}.d.ts`;
             const dtsContents = this.buildDtsForClass(className, abiObj);
-            const formattedDts = await prettier.format(dtsContents, {
-                parser: 'typescript',
-                printWidth: 100,
-                trailingComma: 'all',
-                tabWidth: 4,
-                semi: true,
-                singleQuote: true,
-                quoteProps: 'as-needed',
-                bracketSpacing: true,
-                bracketSameLine: true,
-                arrowParens: 'always',
-                singleAttributePerLine: true,
-            });
+            const formattedDts = await prettier.format(dtsContents, prettierOptions);
 
             fs.writeFileSync(dtsPath, formattedDts);
             logger.success(`Type definitions generated to ${dtsPath}`);
@@ -222,7 +240,9 @@ export default class OPNetTransform extends Transform {
 
                 return {
                     name: m.methodName,
-                    type: 'Function' as const,
+                    type: (m.isView ? 'View' : 'Function') as 'Function' | 'View',
+                    payable: m.isPayable ?? false,
+                    onlyOwner: m.onlyOwner ?? false,
                     inputs,
                     outputs,
                 };
@@ -347,7 +367,7 @@ export type ${typeName} = CallResult<
 
         // combine
         return [
-            `import { Address, AddressMap } from '@btc-vision/transaction';`,
+            `import { Address, AddressMap, ExtendedAddressMap, SchnorrSignature } from '@btc-vision/transaction';`,
             `import { CallResult, OPNetEvent, IOP_NETContract } from 'opnet';`,
             '',
             '// ------------------------------------------------------------------',
@@ -369,49 +389,127 @@ export type ${typeName} = CallResult<
     }
 
     // ------------------------------------------------------------
+    //  Generate TypeScript ABI file (using opnet library types)
+    // ------------------------------------------------------------
+    protected buildAbiTsFile(className: string, abiObj: ClassABI): string {
+        const lines: string[] = [];
+
+        // Imports
+        lines.push(
+            `import { ABIDataTypes, BitcoinAbiTypes, BitcoinInterfaceAbi, OP_NET_ABI } from 'opnet';`,
+        );
+        lines.push('');
+
+        // Events array
+        const eventsVarName = `${className}Events`;
+        lines.push(`export const ${eventsVarName} = [`);
+        for (const evt of abiObj.events) {
+            const valuesStr = evt.values
+                .map((v) => `{ name: '${v.name}', type: ABIDataTypes.${v.type} }`)
+                .join(', ');
+            lines.push(`    {`);
+            lines.push(`        name: '${evt.name}',`);
+            lines.push(`        values: [${valuesStr}],`);
+            lines.push(`        type: BitcoinAbiTypes.Event,`);
+            lines.push(`    },`);
+        }
+        lines.push(`];`);
+        lines.push('');
+
+        // ABI array
+        const abiVarName = `${className}Abi`;
+        lines.push(`export const ${abiVarName}: BitcoinInterfaceAbi = [`);
+        for (const fn of abiObj.functions) {
+            // Build inputs
+            const inputsStr =
+                fn.inputs.length === 0
+                    ? '[]'
+                    : `[${fn.inputs.map((i) => `{ name: '${i.name}', type: ABIDataTypes.${i.type} }`).join(', ')}]`;
+
+            // Build outputs
+            const outputsStr =
+                fn.outputs.length === 0
+                    ? '[]'
+                    : `[${fn.outputs.map((o) => `{ name: '${o.name}', type: ABIDataTypes.${o.type} }`).join(', ')}]`;
+
+            lines.push(`    {`);
+            lines.push(`        name: '${fn.name}',`);
+
+            // Map view/payable to opnet's FunctionBaseData format
+            if (fn.type === 'View') {
+                lines.push(`        constant: true,`);
+            }
+            if (fn.payable) {
+                lines.push(`        payable: true,`);
+            }
+
+            lines.push(`        inputs: ${inputsStr},`);
+            lines.push(`        outputs: ${outputsStr},`);
+            lines.push(`        type: BitcoinAbiTypes.Function,`);
+            lines.push(`    },`);
+        }
+
+        // Spread events and OP_NET_ABI
+        lines.push(`    ...${eventsVarName},`);
+        lines.push(`    ...OP_NET_ABI,`);
+        lines.push(`];`);
+        lines.push('');
+
+        // Default export
+        lines.push(`export default ${abiVarName};`);
+        lines.push('');
+
+        return lines.join('\n');
+    }
+
+    // ------------------------------------------------------------
     //  Build the `execute` method stubs
     // ------------------------------------------------------------
     protected buildExecuteMethod(_className: string, methods: MethodCollection[]): string {
         const bodyLines: string[] = [];
 
         for (const m of methods) {
-            // Build the method signature from paramDefs
+            // Build the method signature from paramDefs.
+            // Normalize ALL params through mapToAbiDataType -> AbiTypeToStr
+            // so aliases like "AddressMap<u256>" become "tuple(address,uint256)[]".
             const realNames = m.paramDefs.map((param) => {
-                if (typeof param === 'string') {
-                    return param;
+                const type = typeof param === 'string' ? param : param.type;
+                const abiType = this.mapToAbiDataType(type);
+                const canonical = AbiTypeToStr[abiType];
+                if (canonical) {
+                    return canonical;
                 }
-
-                const type = param.type;
-                if (type.startsWith('ABIDataTypes.')) {
-                    const enumType = type.replace('ABIDataTypes.', '');
-                    const enumValue = ABIDataTypes[enumType as keyof typeof ABIDataTypes];
-
-                    if (!enumValue) {
-                        throw new Error(`Invalid abi type (from string): ${enumType}`);
-                    }
-                    const selectorValue = AbiTypeToStr[enumValue];
-                    if (!selectorValue) {
-                        throw new Error(`Invalid abi type (to string): ${enumValue}`);
-                    }
-                    return selectorValue;
-                }
+                // Fallback: if mapToAbiDataType returned something not in AbiTypeToStr
                 return type;
             });
 
             const sig = `${m.methodName}(${realNames.join(',')})`;
             m.signature = sig;
 
-            // 4-byte selector
-            const selectorHex = abiCoder.encodeSelector(sig);
-            const selectorNum = `0x${selectorHex}`;
+            // 4-byte selector: use override if provided, otherwise compute
+            let selectorNum: string;
+            if (m.selectorOverride) {
+                selectorNum = m.selectorOverride;
+                logger.debugBright(
+                    `Found function ${sig} -> ${selectorNum} [override] (${m.declaration.name.text})`,
+                );
+            } else {
+                const selectorHex = abiCoder.encodeSelector(sig);
+                selectorNum = `0x${selectorHex}`;
+                logger.debugBright(
+                    `Found function ${sig} -> ${selectorNum} (${m.declaration.name.text})`,
+                );
+            }
 
-            logger.debugBright(
-                `Found function ${sig} -> ${selectorNum} (${m.declaration.name.text})`,
-            );
-
-            bodyLines.push(
-                `if (selector == ${selectorNum}) return this.${m.declaration.name.text}(calldata);`,
-            );
+            // Build the body for this selector branch
+            const callLine = `return this.${m.declaration.name.text}(calldata);`;
+            if (m.onlyOwner) {
+                bodyLines.push(
+                    `if (selector == ${selectorNum}) { this.onlyOwner(calldata); ${callLine} }`,
+                );
+            } else {
+                bodyLines.push(`if (selector == ${selectorNum}) ${callLine}`);
+            }
         }
 
         bodyLines.push('return super.execute(selector, calldata);');
@@ -631,6 +729,52 @@ export type ${typeName} = CallResult<
                 }
 
                 methodInfo.emittedEvents.push(...rawArgs);
+            } else if (decName === 'view') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.isView = true;
+            } else if (decName === 'payable') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.isPayable = true;
+            } else if (decName === 'onlyOwner') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                methodInfo.onlyOwner = true;
+            } else if (decName === 'selector') {
+                if (!methodInfo) {
+                    methodInfo = {
+                        methodName: node.name.text,
+                        paramDefs: [],
+                        returnDefs: [],
+                        declaration: node,
+                        emittedEvents: [],
+                    };
+                }
+                if (dec.args && dec.args.length > 0) {
+                    methodInfo.selectorOverride = unquote(dec.args[0].range.toString());
+                }
             }
         }
 
@@ -646,6 +790,11 @@ export type ${typeName} = CallResult<
                 existing.emittedEvents = [
                     ...new Set([...existing.emittedEvents, ...methodInfo.emittedEvents]),
                 ];
+                if (methodInfo.isView) existing.isView = true;
+                if (methodInfo.isPayable) existing.isPayable = true;
+                if (methodInfo.onlyOwner) existing.onlyOwner = true;
+                if (methodInfo.selectorOverride)
+                    existing.selectorOverride = methodInfo.selectorOverride;
             } else {
                 arr.push(methodInfo);
             }
@@ -802,12 +951,7 @@ export type ${typeName} = CallResult<
     }
 
     private isParamDefinition(param: ParamDefinition): boolean {
-        if (typeof param === 'string') {
-            return param in StrToAbiType || param.startsWith('ABIDataTypes.');
-        } else {
-            if (param.type.startsWith('ABIDataTypes.')) return true;
-            return param.type in StrToAbiType;
-        }
+        return isParamDefinition(param);
     }
 
     /**
@@ -818,52 +962,27 @@ export type ${typeName} = CallResult<
             const enumName = str.replace('ABIDataTypes.', '');
             return enumName as ABIDataTypes;
         }
-        // else check our known mapping
-        return StrToAbiType[str] || StrToAbiType['unknown'];
+        // Check our known mapping
+        if (str in StrToAbiType) {
+            return StrToAbiType[str];
+        }
+        // Try tuple resolution for unknown strings
+        if (isTupleString(str)) {
+            const resolved = resolveTupleToAbiType(str);
+            if (resolved !== undefined) {
+                return resolved;
+            }
+            logger.warn(`Unrecognized tuple type: ${str}`);
+        }
+        return StrToAbiType['unknown'];
     }
 
     private mapAbiTypeToTypescript(abiType: ABIDataTypes): string {
-        switch (abiType) {
-            case ABIDataTypes.ADDRESS:
-                return 'Address';
-            case ABIDataTypes.STRING:
-                return 'string';
-            case ABIDataTypes.BOOL:
-                return 'boolean';
-            case ABIDataTypes.BYTES:
-                return 'Uint8Array';
-            case ABIDataTypes.UINT8:
-            case ABIDataTypes.UINT16:
-            case ABIDataTypes.UINT32:
-                return 'number';
-            case ABIDataTypes.UINT64:
-            case ABIDataTypes.INT128:
-            case ABIDataTypes.UINT128:
-            case ABIDataTypes.UINT256:
-                return 'bigint';
-            case ABIDataTypes.ADDRESS_UINT256_TUPLE:
-                return 'AddressMap<bigint>';
-            case ABIDataTypes.ARRAY_OF_ADDRESSES:
-                return 'Address[]';
-            case ABIDataTypes.ARRAY_OF_STRING:
-                return 'string[]';
-            case ABIDataTypes.ARRAY_OF_BYTES:
-                return 'Uint8Array[]';
-            case ABIDataTypes.ARRAY_OF_UINT8:
-            case ABIDataTypes.ARRAY_OF_UINT16:
-            case ABIDataTypes.ARRAY_OF_UINT32:
-                return 'number[]';
-            case ABIDataTypes.ARRAY_OF_UINT64:
-            case ABIDataTypes.ARRAY_OF_UINT128:
-            case ABIDataTypes.ARRAY_OF_UINT256:
-                return 'bigint[]';
-            case ABIDataTypes.BYTES4:
-            case ABIDataTypes.BYTES32:
-                return 'Uint8Array';
-            default:
-                logger.warn(`Unknown or unhandled type definition for ${abiType}`);
-                return 'unknown';
+        const result = mapAbiTypeToTypescript(abiType);
+        if (result === 'unknown') {
+            logger.warn(`Unknown or unhandled type definition for ${abiType}`);
         }
+        return result;
     }
 
     private toPascalCase(str: string): string {

@@ -1,0 +1,142 @@
+import { describe, it, expect } from 'vitest';
+import { ABIDataTypes } from '@btc-vision/transaction';
+import { mapAbiTypeToTypescript } from '../transform/utils/typeMappings.js';
+
+describe('mapAbiTypeToTypescript', () => {
+    describe('every ABIDataTypes maps to a non-unknown TS type', () => {
+        const allTypes = Object.values(ABIDataTypes);
+
+        it('maps all known types to non-unknown', () => {
+            for (const type of allTypes) {
+                const ts = mapAbiTypeToTypescript(type);
+                expect(ts).not.toBe('unknown');
+            }
+        });
+    });
+
+    describe('tuple types -> Map types', () => {
+        it('ADDRESS_UINT256_TUPLE -> AddressMap<bigint>', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ADDRESS_UINT256_TUPLE)).toBe(
+                'AddressMap<bigint>',
+            );
+        });
+
+        it('EXTENDED_ADDRESS_UINT256_TUPLE -> ExtendedAddressMap<bigint>', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.EXTENDED_ADDRESS_UINT256_TUPLE)).toBe(
+                'ExtendedAddressMap<bigint>',
+            );
+        });
+    });
+
+    describe('integer size -> number vs bigint', () => {
+        it('UINT8 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT8)).toBe('number');
+        });
+
+        it('UINT16 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT16)).toBe('number');
+        });
+
+        it('UINT32 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT32)).toBe('number');
+        });
+
+        it('INT8 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.INT8)).toBe('number');
+        });
+
+        it('INT16 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.INT16)).toBe('number');
+        });
+
+        it('INT32 -> number', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.INT32)).toBe('number');
+        });
+
+        it('UINT64 -> bigint', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT64)).toBe('bigint');
+        });
+
+        it('INT64 -> bigint', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.INT64)).toBe('bigint');
+        });
+
+        it('INT128 -> bigint', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.INT128)).toBe('bigint');
+        });
+
+        it('UINT128 -> bigint', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT128)).toBe('bigint');
+        });
+
+        it('UINT256 -> bigint', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.UINT256)).toBe('bigint');
+        });
+    });
+
+    describe('array types', () => {
+        it('ARRAY_OF_UINT8 -> number[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_UINT8)).toBe('number[]');
+        });
+
+        it('ARRAY_OF_UINT256 -> bigint[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_UINT256)).toBe('bigint[]');
+        });
+
+        it('ARRAY_OF_ADDRESSES -> Address[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_ADDRESSES)).toBe('Address[]');
+        });
+
+        it('ARRAY_OF_BYTES -> Uint8Array[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_BYTES)).toBe('Uint8Array[]');
+        });
+
+        it('ARRAY_OF_BUFFERS -> Uint8Array[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_BUFFERS)).toBe('Uint8Array[]');
+        });
+
+        it('ARRAY_OF_STRING -> string[]', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ARRAY_OF_STRING)).toBe('string[]');
+        });
+    });
+
+    describe('special types', () => {
+        it('SCHNORR_SIGNATURE -> SchnorrSignature', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.SCHNORR_SIGNATURE)).toBe('SchnorrSignature');
+        });
+
+        it('ADDRESS -> Address', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.ADDRESS)).toBe('Address');
+        });
+
+        it('EXTENDED_ADDRESS -> Address', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.EXTENDED_ADDRESS)).toBe('Address');
+        });
+
+        it('BOOL -> boolean', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.BOOL)).toBe('boolean');
+        });
+
+        it('STRING -> string', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.STRING)).toBe('string');
+        });
+
+        it('BYTES -> Uint8Array', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.BYTES)).toBe('Uint8Array');
+        });
+
+        it('BYTES4 -> Uint8Array', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.BYTES4)).toBe('Uint8Array');
+        });
+
+        it('BYTES32 -> Uint8Array', () => {
+            expect(mapAbiTypeToTypescript(ABIDataTypes.BYTES32)).toBe('Uint8Array');
+        });
+    });
+
+    describe('unknown type', () => {
+        it('returns unknown for unrecognized type', () => {
+            expect(mapAbiTypeToTypescript('NONEXISTENT' as ABIDataTypes)).toBe('unknown');
+        });
+    });
+});

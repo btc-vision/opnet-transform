@@ -1,2 +1,2 @@
 import '../../assembly/index';
-import 'assemblyscript/std/types/assembly';
+import '@btc-vision/assemblyscript/std/types/assembly';

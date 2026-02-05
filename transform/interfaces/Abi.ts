@@ -1,5 +1,5 @@
-import { ABIDataTypes } from 'opnet';
-import { MethodDeclaration } from 'assemblyscript/dist/assemblyscript.js';
+import { ABIDataTypes } from '@btc-vision/transaction';
+import { MethodDeclaration } from '@btc-vision/assemblyscript/dist/assemblyscript.js';
 
 // ------------------------------------------------------------------
 // Types
@@ -32,20 +32,30 @@ export interface MethodCollection {
     selector?: number;
     internalName?: string;
     emittedEvents: string[];
+    isView?: boolean;
+    isPayable?: boolean;
+    onlyOwner?: boolean;
+    selectorOverride?: string;
+}
+
+export interface ABIFunctionEntry {
+    name: string;
+    type: 'Function' | 'View';
+    payable: boolean;
+    onlyOwner: boolean;
+    inputs: { name: string; type: ABIDataTypes }[];
+    outputs: { name: string; type: ABIDataTypes }[];
+}
+
+export interface ABIEventEntry {
+    name: string;
+    values: { name: string; type: ABIDataTypes }[];
+    type: 'Event';
 }
 
 export interface ClassABI {
-    functions: {
-        name: string;
-        type: 'Function';
-        inputs: { name: string; type: ABIDataTypes }[];
-        outputs: { name: string; type: ABIDataTypes }[];
-    }[];
-    events: {
-        name: string;
-        values: { name: string; type: ABIDataTypes }[];
-        type: 'Event';
-    }[];
+    functions: ABIFunctionEntry[];
+    events: ABIEventEntry[];
 }
 
 export interface EventField {
