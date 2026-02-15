@@ -37,12 +37,12 @@ import {
 import { mapAbiTypeToTypescript } from './utils/typeMappings.js';
 import { isParamDefinition } from './utils/paramValidation.js';
 import {
+    abiTypeToSelectorString,
     canonicalizeTupleString,
     isTupleString,
     isTupleArrayType,
     parseTupleToStructuredArray,
     resolveTupleToAbiType,
-    structuredArrayToTupleString,
     validateTupleInnerTypes,
 } from './utils/tupleParser.js';
 import { AbiType, StructType } from './interfaces/Abi.js';
@@ -367,7 +367,9 @@ export type ${typeName} = CallResult<
                 ...fn.outputs.map((p) => ({ ...p, kind: 'output' as const })),
             ];
             for (const p of allParams) {
-                if (isTupleArrayType(p.type)) {
+                // Only generate named tuple types for multi-element tuples.
+                // Single-element tuples unwrap to Type[] via mapAbiTypeToTypescript.
+                if (isTupleArrayType(p.type) && p.type.length > 1) {
                     const methodPascal = this.toPascalCase(fn.name);
                     const paramPascal = this.toPascalCase(p.name);
                     const typeName = `${methodPascal}${paramPascal}`;
@@ -548,16 +550,7 @@ export type ${typeName} = CallResult<
             const realNames = m.paramDefs.map((param) => {
                 const type = typeof param === 'string' ? param : param.type;
                 const abiType = this.mapToAbiDataType(type);
-                // Structured tuple array: convert back to tuple string for selector
-                if (isTupleArrayType(abiType)) {
-                    return structuredArrayToTupleString(abiType);
-                }
-                const canonical = AbiTypeToStr[abiType as ABIDataTypes];
-                if (canonical) {
-                    return canonical;
-                }
-                // Fallback
-                return type;
+                return abiTypeToSelectorString(abiType);
             });
 
             const sig = `${m.methodName}(${realNames.join(',')})`;

@@ -8,8 +8,14 @@ import { StrToAbiType } from '../StrToAbiType.js';
  * or legacy tuple string to a TypeScript type string for use in generated .d.ts files.
  */
 export function mapAbiTypeToTypescript(abiType: AbiType): string {
-    // Handle structured tuple arrays: [ABIDataTypes.ADDRESS, ABIDataTypes.UINT8] → [Address, number][]
+    // Handle structured tuple arrays
     if (Array.isArray(abiType)) {
+        // Single-element tuple: unwrap to Type[] (e.g. [ADDRESS] → Address[])
+        const firstType = abiType[0];
+        if (abiType.length === 1 && firstType !== undefined) {
+            return `${mapAbiTypeToTypescript(firstType)}[]`;
+        }
+        // Multi-element tuple: [Address, number][]
         const tsTypes = abiType.map((t) => mapAbiTypeToTypescript(t));
         return `[${tsTypes.join(', ')}][]`;
     }

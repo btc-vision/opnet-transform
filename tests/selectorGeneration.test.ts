@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { ABIDataTypes } from '@btc-vision/transaction';
 import { AbiTypeToStr } from '../transform/StrToAbiType.js';
+import { abiTypeToSelectorString } from '../transform/utils/tupleParser.js';
 
 describe('AbiTypeToStr for selector generation', () => {
     describe('produces correct canonical strings', () => {
@@ -95,6 +96,47 @@ describe('AbiTypeToStr for selector generation', () => {
 
         it('ARRAY_OF_BUFFERS -> buffer[]', () => {
             expect(AbiTypeToStr[ABIDataTypes.ARRAY_OF_BUFFERS]).toBe('buffer[]');
+        });
+    });
+
+    describe('abiTypeToSelectorString', () => {
+        it('simple type: ADDRESS -> address', () => {
+            expect(abiTypeToSelectorString(ABIDataTypes.ADDRESS)).toBe('address');
+        });
+
+        it('simple type: UINT256 -> uint256', () => {
+            expect(abiTypeToSelectorString(ABIDataTypes.UINT256)).toBe('uint256');
+        });
+
+        it('single-element tuple: [ADDRESS] -> address[] (unwrapped)', () => {
+            expect(abiTypeToSelectorString([ABIDataTypes.ADDRESS])).toBe('address[]');
+        });
+
+        it('multi-element tuple: [ADDRESS, UINT256] -> tuple(address,uint256)[]', () => {
+            expect(abiTypeToSelectorString([ABIDataTypes.ADDRESS, ABIDataTypes.UINT256])).toBe(
+                'tuple(address,uint256)[]',
+            );
+        });
+
+        it('struct: { owner: ADDRESS, amount: UINT256 } -> tuple(address,uint256)', () => {
+            expect(
+                abiTypeToSelectorString({
+                    owner: ABIDataTypes.ADDRESS,
+                    amount: ABIDataTypes.UINT256,
+                }),
+            ).toBe('tuple(address,uint256)');
+        });
+
+        it('struct has no [] suffix (inline, not array)', () => {
+            const result = abiTypeToSelectorString({ field: ABIDataTypes.BOOL });
+            expect(result).toBe('tuple(bool)');
+            expect(result).not.toContain('[]');
+        });
+
+        it('throws for unknown simple type', () => {
+            expect(() => abiTypeToSelectorString('INVALID' as ABIDataTypes)).toThrow(
+                'Unknown ABI type',
+            );
         });
     });
 });

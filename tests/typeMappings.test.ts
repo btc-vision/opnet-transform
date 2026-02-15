@@ -181,8 +181,8 @@ describe('mapAbiTypeToTypescript', () => {
             ).toBe('[bigint, boolean, Address][]');
         });
 
-        it('[STRING] -> [string][]', () => {
-            expect(mapAbiTypeToTypescript([ABIDataTypes.STRING])).toBe('[string][]');
+        it('[STRING] -> string[] (single-element unwrap)', () => {
+            expect(mapAbiTypeToTypescript([ABIDataTypes.STRING])).toBe('string[]');
         });
 
         it('[ADDRESS, ADDRESS, UINT256] -> [Address, Address, bigint][]', () => {

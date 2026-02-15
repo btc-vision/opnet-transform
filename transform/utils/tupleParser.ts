@@ -101,3 +101,38 @@ export function structuredArrayToTupleString(arr: ABIDataTypes[]): `tuple(${stri
     const names = arr.map((t) => AbiTypeToStr[t]);
     return `tuple(${names.join(',')})[]`;
 }
+
+/**
+ * Converts a structured AbiType into a canonical selector string.
+ * Matches the behavior of transaction's abiTypeToSelectorString:
+ * - Simple: ABIDataTypes.ADDRESS → "address"
+ * - Struct: { a: ADDRESS, b: UINT256 } → "tuple(address,uint256)" (no [])
+ * - Single-element tuple: [UINT256] → "uint256[]"
+ * - Multi-element tuple: [ADDRESS, UINT256] → "tuple(address,uint256)[]"
+ */
+export function abiTypeToSelectorString(type: AbiType): string {
+    // Simple ABIDataTypes enum value
+    if (typeof type === 'string') {
+        const str = AbiTypeToStr[type as ABIDataTypes];
+        if (!str) {
+            throw new Error(`Unknown ABI type: ${type}`);
+        }
+        return str;
+    }
+
+    // Struct: inline tuple (no [] suffix)
+    if (!Array.isArray(type)) {
+        const inner = Object.values(type).map((t) => abiTypeToSelectorString(t)).join(',');
+        return `tuple(${inner})`;
+    }
+
+    // Single-element tuple: unwrap to "type[]"
+    const firstType = type[0];
+    if (type.length === 1 && firstType !== undefined) {
+        return `${abiTypeToSelectorString(firstType)}[]`;
+    }
+
+    // Multi-element tuple: "tuple(types...)[]"
+    const inner = type.map((t) => abiTypeToSelectorString(t)).join(',');
+    return `tuple(${inner})[]`;
+}
